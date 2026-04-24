@@ -131,6 +131,104 @@ footer{background:var(--black);border-top:1px solid rgba(255,255,255,.07);paddin
 .reveal-delay-1{transition-delay:.1s}
 .reveal-delay-2{transition-delay:.2s}
 .reveal-delay-3{transition-delay:.3s}
+
+/* ── MOBILE RESPONSIVE ────────────────────────────────────────── */
+@media (max-width: 768px) {
+
+  /* NAV */
+  nav { padding: 16px 20px; }
+  .nav-links { gap: 16px; }
+  .nav-links a { font-size: 10px; letter-spacing: .1em; }
+
+  /* HERO */
+  .hero { grid-template-columns: 1fr; grid-template-rows: auto; height: auto; min-height: 100svh; }
+  .hero-left { padding: 100px 24px 40px; justify-content: flex-start; }
+  .hero-name { font-size: clamp(72px, 22vw, 120px); }
+  .hero-eyebrow { font-size: 10px; }
+  .hero-role { font-size: 11px; margin-top: 16px; }
+  .hero-tags { margin-top: 10px; }
+  .hero-tag { font-size: 9px; padding: 4px 10px; }
+  .hero-cta { margin-top: 32px; }
+  .hero-right { height: 55vw; min-height: 260px; }
+  .hero-counter { display: none; }
+  .scrollline { display: none; }
+
+  /* MARQUEE */
+  .marquee-item { font-size: 16px; padding: 0 20px; }
+
+  /* SECTIONS */
+  section { padding: 72px 0; }
+  .container { padding: 0 20px; }
+  .section-title { font-size: clamp(40px, 12vw, 64px); margin-bottom: 32px; }
+
+  /* ABOUT */
+  .about-grid { grid-template-columns: 1fr; gap: 48px; }
+  .about-img { aspect-ratio: 4/3; }
+  .about-badge { bottom: -16px; right: 0; padding: 16px 20px; font-size: 12px; }
+  .about-badge strong { font-size: 16px; }
+  .about-stats { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .stat-num { font-size: 36px; }
+  .stat-label { font-size: 9px; }
+
+  /* NUMBERS STRIP */
+  .numbers-grid { grid-template-columns: 1fr 1fr; gap: 0; }
+  .number-item { padding: 20px 16px; border-right: 1px solid rgba(255,255,255,.2); border-bottom: 1px solid rgba(255,255,255,.2); }
+  .number-item:nth-child(2) { border-right: none; }
+  .number-item:nth-child(3) { border-bottom: none; }
+  .number-item:nth-child(4) { border-right: none; border-bottom: none; }
+  .number-big { font-size: 48px; }
+  .number-label { font-size: 9px; }
+
+  /* JOBS */
+  .job-item { grid-template-columns: 1fr; gap: 12px; padding: 36px 0; }
+  .job-meta { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .job-period { margin-bottom: 0; }
+  .job-title { font-size: 28px; margin-bottom: 12px; }
+  .job-desc { font-size: 14px; }
+  .job-bullets li { font-size: 13px; }
+  .job-photos.cols-3 { grid-template-columns: 1fr 1fr; }
+  .job-photos.cols-3 .job-photo-item:last-child { display: none; }
+  .job-photos.cols-2 { grid-template-columns: 1fr; }
+  .job-photo-item { aspect-ratio: 16/9; }
+  .job-photo-cap { opacity: 1; padding: 12px 10px 8px; font-size: 9px; }
+
+  /* SKILLS */
+  .skills-grid { grid-template-columns: 1fr 1fr; }
+  .skill-card { padding: 24px 20px; }
+  .skill-icon { font-size: 22px; margin-bottom: 10px; }
+  .skill-name { font-size: 12px; }
+  .skill-items li { font-size: 12px; }
+
+  /* MOTIVATIEBRIEF */
+  .motief-inner { padding: 40px 24px; }
+  .motief-title { font-size: 48px; margin-bottom: 28px; }
+  .motief-cols { grid-template-columns: 1fr; gap: 0; }
+  .motief-cols p { font-size: 14px; }
+  .motief-sign { font-size: 32px; margin-top: 28px; }
+  .motief-inner::after { font-size: 140px; bottom: -20px; right: -10px; }
+
+  /* CONTACT */
+  .contact-grid { grid-template-columns: 1fr; gap: 48px; }
+  .contact-title { font-size: clamp(52px, 14vw, 80px); }
+  .contact-photo-wrap { order: -1; }
+  .contact-photo { aspect-ratio: 4/3; }
+  .contact-photo-tag { font-size: 12px; left: 0; top: 16px; }
+  .contact-sub { font-size: 14px; margin-bottom: 32px; }
+  .contact-item { padding: 16px 18px; }
+  .contact-value { font-size: 13px; }
+
+  /* FOOTER */
+  footer { flex-direction: column; gap: 8px; text-align: center; padding: 24px 20px; }
+}
+
+@media (max-width: 480px) {
+  .hero-name { font-size: 18vw; }
+  .skills-grid { grid-template-columns: 1fr; }
+  .about-stats { grid-template-columns: 1fr 1fr; }
+  .about-stats > div:last-child { display: none; }
+  .nav-links { gap: 12px; }
+  .nav-links a { font-size: 9px; }
+}
 </style>
 </head>
 <body>
