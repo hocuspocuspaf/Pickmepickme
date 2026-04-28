@@ -1,0 +1,86 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "rooms": {
+      "$room": {
+        ".read": "auth != null && (data.child('status').val() === 'waiting' || data.child('players').child(auth.uid).exists())",
+        ".write": "auth != null && ((!data.exists() && newData.child('hostId').val() === auth.uid) || data.child('hostId').val() === auth.uid)",
+        "players": {
+          "$uid": {
+            ".write": "auth != null && ($uid === auth.uid || root.child('rooms').child($room).child('hostId').val() === auth.uid)",
+            "name": {
+              ".validate": "newData.isString() && newData.val().length <= 20"
+            },
+            "color": {
+              ".validate": "newData.isString()"
+            },
+            "connected": {
+              ".validate": "newData.isBoolean()"
+            },
+            "leftAt": {
+              ".validate": "newData.val() === null || newData.isNumber()"
+            },
+            "joinedAt": {
+              ".validate": "newData.isNumber()"
+            },
+            "chips": {
+              ".validate": "root.child('rooms').child($room).child('hostId').val() === auth.uid || (!data.exists() && newData.val() === root.child('rooms').child($room).child('settings').child('chips').val()) || newData.val() === data.val()"
+            },
+            "bet": {
+              ".validate": "root.child('rooms').child($room).child('hostId').val() === auth.uid || (!data.exists() && newData.val() === 0) || newData.val() === data.val()"
+            },
+            "totalBet": {
+              ".validate": "root.child('rooms').child($room).child('hostId').val() === auth.uid || (!data.exists() && newData.val() === 0) || newData.val() === data.val()"
+            },
+            "folded": {
+              ".validate": "root.child('rooms').child($room).child('hostId').val() === auth.uid || (!data.exists() && newData.val() === false) || newData.val() === data.val()"
+            },
+            "allIn": {
+              ".validate": "root.child('rooms').child($room).child('hostId').val() === auth.uid || (!data.exists() && newData.val() === false) || newData.val() === data.val()"
+            },
+            "lastAction": {
+              ".validate": "root.child('rooms').child($room).child('hostId').val() === auth.uid || (!data.exists() && newData.val() === '') || newData.val() === data.val()"
+            },
+            "seatIndex": {
+              ".validate": "root.child('rooms').child($room).child('hostId').val() === auth.uid || !data.exists() || newData.val() === data.val()"
+            },
+            "cards": {
+              ".validate": false
+            },
+            "$other": {
+              ".validate": false
+            }
+          }
+        },
+        "actions": {
+          "$uid": {
+            ".write": "auth != null && (($uid === auth.uid && root.child('rooms').child($room).child('players').child(auth.uid).exists()) || root.child('rooms').child($room).child('hostId').val() === auth.uid)",
+            ".validate": "newData.val() === null || (newData.hasChildren(['type', 'ts']) && newData.child('ts').isNumber() && (newData.child('type').val() === 'fold' || newData.child('type').val() === 'check' || newData.child('type').val() === 'call' || newData.child('type').val() === 'raise' || newData.child('type').val() === 'allin') && (!newData.child('amount').exists() || newData.child('amount').isNumber()))"
+          }
+        },
+        "emoji": {
+          ".write": "auth != null && root.child('rooms').child($room).child('players').child(auth.uid).exists() && newData.child('playerId').val() === auth.uid"
+        },
+        "game": {
+          ".write": "auth != null && root.child('rooms').child($room).child('hostId').val() === auth.uid"
+        }
+      }
+    },
+    "roomSecrets": {
+      "$room": {
+        ".read": false,
+        ".write": "auth != null && root.child('rooms').child($room).child('hostId').val() === auth.uid",
+        "deck": {
+          ".read": "auth != null && root.child('rooms').child($room).child('hostId').val() === auth.uid"
+        },
+        "cards": {
+          "$uid": {
+            ".read": "auth != null && ($uid === auth.uid || root.child('rooms').child($room).child('hostId').val() === auth.uid)",
+            ".write": "auth != null && root.child('rooms').child($room).child('hostId').val() === auth.uid"
+          }
+        }
+      }
+    }
+  }
+}
