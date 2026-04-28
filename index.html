@@ -195,6 +195,24 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
 .confetti{position:fixed;pointer-events:none;z-index:160;font-size:1.5rem;animation:confettifall 2.5s ease forwards}
 @keyframes confettifall{0%{opacity:1;transform:translateY(-20px) rotate(0deg)}100%{opacity:0;transform:translateY(100vh) rotate(720deg)}}
 
+/* SHOWDOWN ON TABLE */
+.seat.winner-seat .seat-inner{box-shadow:0 0 0 3px var(--gold),0 0 28px rgba(201,168,76,0.75)!important;background:rgba(20,16,5,0.96)!important}
+.seat.winner-seat .seat-name{color:var(--gold)!important}
+.seat-showdown-cards{display:flex;gap:3px;margin-top:2px}
+.sd-card{width:22px;height:32px;border-radius:3px;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:'Playfair Display',serif;font-weight:700;font-size:.55rem;position:relative;flex-shrink:0;box-shadow:0 2px 6px rgba(0,0,0,.5)}
+.sd-card.fu{background:#faf8f2;color:#1a1a1a;border:1px solid rgba(0,0,0,.15)}
+.sd-card.fu.red{color:#cc1122}
+.sd-card.fd{background:linear-gradient(145deg,#1c3d6e,#0f2040);border:1px solid rgba(201,168,76,.15)}
+.showdown-banner{background:rgba(0,0,0,.75);border:1px solid rgba(201,168,76,.5);border-radius:12px;padding:.4rem 1rem;text-align:center;margin-top:6px;min-width:160px}
+.showdown-banner .win-name{font-family:'Playfair Display',serif;color:var(--gold);font-size:.88rem;font-weight:700;white-space:nowrap}
+.showdown-banner .win-hand{font-size:.68rem;color:var(--text-dim);margin-top:1px}
+.showdown-next{display:flex;align-items:center;justify-content:center;gap:10px;padding:.4rem 0}
+.btn-next-inline{background:linear-gradient(135deg,var(--gold-dark),var(--gold),var(--gold-light));color:#1a1000;border:none;border-radius:8px;padding:.6rem 1.4rem;font-family:'Rajdhani',sans-serif;font-weight:700;font-size:.95rem;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;box-shadow:0 4px 18px rgba(201,168,76,.28)}
+.btn-next-inline:hover{transform:translateY(-1px)}
+.waiting-next{color:var(--text-dim);font-size:.82rem;letter-spacing:.08em;font-style:italic}
+/* VERSION BADGE */
+.version-badge{position:fixed;top:6px;left:8px;font-size:.62rem;color:rgba(201,168,76,.45);font-family:'Rajdhani',sans-serif;font-weight:600;letter-spacing:.06em;z-index:300;pointer-events:none}
+
 /* CONNECTING */
 .connecting{position:fixed;inset:0;background:rgba(8,12,10,.95);z-index:250;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1rem}
 .connecting.hidden{display:none}
@@ -206,6 +224,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
 <body>
 
 <div class="toast" id="toast"></div>
+<div class="version-badge">v1.1</div>
 <div class="connecting" id="connecting">
   <div class="connecting-spinner"></div>
   <p>Verbinden met Firebase…</p>
@@ -355,17 +374,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
   </div>
 </div>
 
-<!-- Winner overlay -->
-<div class="winner-overlay" id="winner-overlay">
-  <div class="winner-card">
-    <div class="trophy">🏆</div>
-    <h2 id="winner-name">Speler wint!</h2>
-    <div class="hand-name" id="winner-hand">Full House</div>
-    <div class="winner-cards" id="winner-cards"></div>
-    <button class="btn btn-gold"  id="btn-next-round" onclick="nextRound()" style="display:none;margin-bottom:7px">Volgende Ronde →</button>
-    <button class="btn btn-ghost" onclick="leaveRoom()">Spel beëindigen</button>
-  </div>
-</div>
+<!-- Winner overlay verwijderd – showdown direct op tafel -->
 
 <script type="module">
 /* ═══════════════════════════════════════════════════════════
@@ -673,28 +682,53 @@ function renderGame(room){
   const cc=document.getElementById('community-cards');cc.innerHTML='';
   for(let i=0;i<5;i++)cc.appendChild(community[i]?makeCard(community[i].r,community[i].s,true):makeCard(null,null,false));
 
-  document.getElementById('pot-display').textContent=`POT: €${(game.pot||0).toFixed(2)}`;
+  // Pot of showdown-banner in tafelcentrum
+  if(isShowdown&&winnerIds.length>0){
+    const winP=allP.find(p=>p.id===winnerIds[0]);
+    const wCards=toArr(winP?.cards||[]);
+    let handLabel='';
+    if(community.length>=3&&wCards.length>=2){try{handLabel=evalHand([...wCards,...community]).name;}catch(e){}}
+    const potEl=document.getElementById('pot-display');
+    potEl.innerHTML=`<span style="color:var(--gold);font-size:.78rem">🏆 ${winP?.name||'?'} wint!</span>${handLabel?`<br><span style="font-size:.65rem;color:var(--text-dim)">${handLabel}</span>`:''}`;
+    potEl.style.borderColor='rgba(201,168,76,0.6)';
+  } else {
+    document.getElementById('pot-display').textContent=`POT: €${(game.pot||0).toFixed(2)}`;
+    document.getElementById('pot-display').style.borderColor='rgba(201,168,76,0.28)';
+  }
   document.getElementById('game-phase').textContent=PHASES[game.phase]||'Pre-Flop';
 
   // Seats
+  const winnerIds=toArr(game.winnerIds||[]);
+  const isShowdown=!!game.showdown;
   const con=document.getElementById('seats-container');con.innerHTML='';
   const n=allP.length;
   allP.forEach((p,rawIdx)=>{
     const vis=(rawIdx-myIdx+n)%n;
     const pos=SEAT_POS[Math.min(vis,9)];
     const isActive=toAct[0]===p.id;
+    const isWinner=winnerIds.includes(p.id);
     let badge='';
     if(rawIdx===game.dealerSeat)badge='<div class="seat-badge badge-D">D</div>';
     else if(rawIdx===game.sbSeat)badge='<div class="seat-badge badge-SB">SB</div>';
     else if(rawIdx===game.bbSeat)badge='<div class="seat-badge badge-BB">BB</div>';
     const aMap={Fold:'fold',Check:'check',Call:'call',Raise:'raise','All-In':'all-in'};
-    const actHtml=p.lastAction?`<div class="seat-action action-${aMap[p.lastAction]||'check'}">${p.lastAction}</div>`:'';
-    const cardsHtml=!p.folded?'<div class="seat-cards"><div class="seat-card-sm"></div><div class="seat-card-sm"></div></div>':'';
+    const actHtml=(!isShowdown&&p.lastAction)?`<div class="seat-action action-${aMap[p.lastAction]||'check'}">${p.lastAction}</div>`:'';
+    // Kaarten: bij showdown face-up tonen voor niet-gefoldde spelers
+    let cardsHtml='';
+    if(!p.folded){
+      const pCards=toArr(p.cards||[]);
+      if(isShowdown&&pCards.length>=2){
+        cardsHtml='<div class="seat-showdown-cards">'+sdCardHtml(pCards[0])+sdCardHtml(pCards[1])+'</div>';
+      } else {
+        cardsHtml='<div class="seat-cards"><div class="seat-card-sm"></div><div class="seat-card-sm"></div></div>';
+      }
+    }
+    const winBadge=isWinner?'<div style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);font-size:0.7rem;background:var(--gold);color:#1a1000;border-radius:8px;padding:1px 6px;font-weight:700;white-space:nowrap">🏆 WINNAAR</div>':'';
     const s=document.createElement('div');
     s.id=`seat-${p.id}`;
-    s.className='seat'+(p.folded?' folded':'')+(isActive?' active-turn':'');
+    s.className='seat'+(p.folded?' folded':'')+(isActive?' active-turn':'')+(isWinner?' winner-seat':'');
     s.style.left=pos.x+'%';s.style.top=pos.y+'%';
-    s.innerHTML=`<div class="seat-inner">${badge}
+    s.innerHTML=`<div class="seat-inner">${badge}${winBadge}
       <div class="seat-avatar" style="background:${p.color}">${p.name[0]}</div>
       <div class="seat-name">${p.name}${p.id===myId?' 👤':''}</div>
       <div class="seat-chips">€${(p.chips||0).toFixed(2)}</div>
@@ -714,19 +748,44 @@ function renderGame(room){
   // Actie knoppen
   const myTurn=toAct[0]===myId&&!me.folded&&!me.allIn&&!game.showdown;
   const toCall=Math.max(0,(game.currentBet||0)-(me.bet||0));
-  document.getElementById('turn-badge').style.display=myTurn?'block':'none';
+  document.getElementById('turn-badge').style.display=(myTurn&&!isShowdown)?'block':'none';
   // Toon "Toon Winnaar" knop voor host als spel vastloopt
   const stuck=isHost&&toAct.length===0&&(game.phase||0)<4&&!game.showdown;
   const fbtn=document.getElementById('btn-force');
   if(fbtn)fbtn.style.display=stuck?'inline-block':'none';
+
+  // Action panel tijdens showdown: vervang knoppen door volgende ronde UI
+  const abPanel=document.querySelector('.action-buttons');
+  if(isShowdown){
+    abPanel.innerHTML=isHost
+      ?`<div class="showdown-next" style="width:100%;gap:12px">
+          <button class="btn-next-inline" onclick="nextRound()">Volgende Ronde →</button>
+          <button onclick="leaveRoom()" style="background:transparent;border:1px solid var(--border);color:var(--text-dim);border-radius:8px;padding:.6rem 1rem;font-family:Rajdhani,sans-serif;font-weight:700;font-size:.85rem;cursor:pointer;letter-spacing:.05em">Stoppen</button>
+        </div>`
+      :`<div class="showdown-next" style="width:100%">
+          <span class="waiting-next">⏳ Wachten op host voor volgende ronde…</span>
+        </div>`;
+  } else if(abPanel.querySelector('.showdown-next')){
+    // Nieuwe ronde gestart – herstel knoppen
+    abPanel.innerHTML=\`
+      <button class="action-btn btn-fold"  id="btn-fold"  onclick="doAction('fold')"  disabled>FOLD  <sub>Kaarten neerleggen</sub></button>
+      <button class="action-btn btn-check" id="btn-check" onclick="doAction('check')" disabled>CHECK <sub>Niets inzetten</sub></button>
+      <button class="action-btn btn-raise" id="btn-raise" onclick="openRaise()"       disabled>RAISE <sub>Meer inzetten</sub></button>
+      <button class="action-btn btn-allin" id="btn-allin" onclick="doAction('allin')" disabled>ALL-IN<sub>Alles op het spel</sub></button>\`;
+  }
   ['btn-fold','btn-check','btn-raise','btn-allin'].forEach(id=>document.getElementById(id).disabled=!myTurn);
   const cb=document.getElementById('btn-check');
   if(toCall<=0){cb.innerHTML='CHECK <sub>Niets inzetten</sub>';cb.className='action-btn btn-check';cb.onclick=()=>doAction('check');}
   else{cb.innerHTML=`CALL €${toCall.toFixed(2)} <sub>Meebieden</sub>`;cb.className='action-btn btn-call';cb.onclick=()=>doAction('call');}
 
-  // Showdown tonen
+  // Showdown: confetti 1x afspelen, daarna via renderSeats zichtbaar
   if(game.showdown&&!showdownShown){showdownShown=true;showShowdown(allP,community,game);}
-  if(!game.showdown)showdownShown=false;
+  if(!game.showdown){
+    showdownShown=false;
+    // Nieuwe ronde gestart — zorg dat overlay (legacy) gesloten is
+    const ov=document.getElementById('winner-overlay');
+    if(ov&&ov.classList.contains('show'))ov.classList.remove('show');
+  }
 
   // Auto-advance: als toAct leeg is maar spel nog niet klaar → host triggert volgende fase
   const allActive=allP.filter(p=>!p.folded&&!p.allIn);
@@ -888,17 +947,8 @@ async function runShowdown(room){
 }
 
 function showShowdown(allP,community,game){
-  const wIds=toArr(game.winnerIds||[]);if(!wIds.length)return;
-  const winner=allP.find(p=>p.id===wIds[0]);if(!winner)return;
-  const wCards=toArr(winner.cards||[]);
-  let handName='Alle anderen gefold';
-  if(community.length>=3){try{handName=evalHand([...wCards,...community]).name;}catch(e){}}
-  document.getElementById('winner-name').textContent=`${winner.name} wint! 🏆`;
-  document.getElementById('winner-hand').textContent=handName;
-  const wc=document.getElementById('winner-cards');wc.innerHTML='';
-  wCards.forEach(c=>wc.appendChild(makeCard(c.r,c.s,true)));
-  document.getElementById('btn-next-round').style.display=isHost?'block':'none';
-  document.getElementById('winner-overlay').classList.add('show');
+  // Geen overlay — kaarten worden op tafel getoond via renderSeats
+  // Enkel confetti spawnen
   spawnConfetti();
 }
 
@@ -913,7 +963,7 @@ window.forceShowdown=async()=>{
 };
 window.nextRound=async()=>{
   if(!isHost){showToast('Alleen de host start de volgende ronde');return;}
-  document.getElementById('winner-overlay').classList.remove('show');
+  showdownShown=false;
   const snap=await get(ref(db,`rooms/${myRoomCode}`));
   const room=snap.val();
   const allP=Object.entries(room.players||{}).map(([id,p])=>({id,...p})).sort((a,b)=>a.seatIndex-b.seatIndex).filter(p=>p.chips>0);
@@ -981,6 +1031,17 @@ window.setRaisePct=pct=>{
 /* ═══════════════════════════════════════════════════════════
    KAART BUILDER
 ═══════════════════════════════════════════════════════════ */
+// Kleine kaart als HTML string voor gebruik in innerHTML (showdown seats)
+function sdCardHtml(card){
+  if(!card||!card.r||!card.s)return'';
+  const red=card.s==='h'||card.s==='d';
+  const s=SUIT_SYMS[card.s]||'';
+  return`<div class="sd-card fu${red?' red':''}" title="${card.r}${s}">
+    <span style="line-height:1">${card.r}</span>
+    <span style="line-height:1">${s}</span>
+  </div>`;
+}
+
 function makeCard(rank,suit,faceUp){
   const c=document.createElement('div'),red=suit==='h'||suit==='d';
   c.className='card '+(faceUp?'face-up'+(red?' red':''):'face-down');
