@@ -75,6 +75,7 @@
           ".read": "auth != null && root.child('rooms').child($room).child('hostId').val() === auth.uid"
         },
         "cards": {
+          ".read": "auth != null && root.child('rooms').child($room).child('hostId').val() === auth.uid",
           "$uid": {
             ".read": "auth != null && ($uid === auth.uid || root.child('rooms').child($room).child('hostId').val() === auth.uid)",
             ".write": "auth != null && root.child('rooms').child($room).child('hostId').val() === auth.uid"
