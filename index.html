@@ -767,11 +767,11 @@ function renderGame(room){
         </div>`;
   } else if(abPanel.querySelector('.showdown-next')){
     // Nieuwe ronde gestart – herstel knoppen
-    abPanel.innerHTML=\`
-      <button class="action-btn btn-fold"  id="btn-fold"  onclick="doAction('fold')"  disabled>FOLD  <sub>Kaarten neerleggen</sub></button>
-      <button class="action-btn btn-check" id="btn-check" onclick="doAction('check')" disabled>CHECK <sub>Niets inzetten</sub></button>
-      <button class="action-btn btn-raise" id="btn-raise" onclick="openRaise()"       disabled>RAISE <sub>Meer inzetten</sub></button>
-      <button class="action-btn btn-allin" id="btn-allin" onclick="doAction('allin')" disabled>ALL-IN<sub>Alles op het spel</sub></button>\`;
+    abPanel.innerHTML=
+      '<button class="action-btn btn-fold"  id="btn-fold"  onclick="doAction('fold')"  disabled>FOLD  <sub>Kaarten neerleggen</sub></button>'+
+      '<button class="action-btn btn-check" id="btn-check" onclick="doAction('check')" disabled>CHECK <sub>Niets inzetten</sub></button>'+
+      '<button class="action-btn btn-raise" id="btn-raise" onclick="openRaise()"       disabled>RAISE <sub>Meer inzetten</sub></button>'+
+      '<button class="action-btn btn-allin" id="btn-allin" onclick="doAction('allin')" disabled>ALL-IN<sub>Alles op het spel</sub></button>';
   }
   ['btn-fold','btn-check','btn-raise','btn-allin'].forEach(id=>document.getElementById(id).disabled=!myTurn);
   const cb=document.getElementById('btn-check');
