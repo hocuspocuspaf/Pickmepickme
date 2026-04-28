@@ -671,12 +671,21 @@ async function dealNewRound(pl,settings,prevDealerSeat,roundNum){
 const PHASES=['Pre-Flop','Flop','Turn','River','Showdown'];
 let showdownShown=false;
 
+function actionButtonsHtml(){
+  return `<button class="action-btn btn-fold"  id="btn-fold"  onclick="doAction('fold')"  disabled>FOLD  <sub>Kaarten neerleggen</sub></button>
+      <button class="action-btn btn-check" id="btn-check" onclick="doAction('check')" disabled>CHECK <sub>Niets inzetten</sub></button>
+      <button class="action-btn btn-raise" id="btn-raise" onclick="openRaise()"       disabled>RAISE <sub>Meer inzetten</sub></button>
+      <button class="action-btn btn-allin" id="btn-allin" onclick="doAction('allin')" disabled>ALL-IN<sub>Alles op het spel</sub></button>`;
+}
+
 function renderGame(room){
   const game=room.game||{},pl=room.players||{};
   const allP=Object.entries(pl).map(([id,p])=>({id,...p})).sort((a,b)=>a.seatIndex-b.seatIndex);
   const myIdx=allP.findIndex(p=>p.id===myId);
   const toAct=toArr(game.toAct||[]);
   const community=toArr(game.community||[]);
+  const winnerIds=toArr(game.winnerIds||[]);
+  const isShowdown=!!game.showdown;
 
   // Community cards
   const cc=document.getElementById('community-cards');cc.innerHTML='';
@@ -698,8 +707,6 @@ function renderGame(room){
   document.getElementById('game-phase').textContent=PHASES[game.phase]||'Pre-Flop';
 
   // Seats
-  const winnerIds=toArr(game.winnerIds||[]);
-  const isShowdown=!!game.showdown;
   const con=document.getElementById('seats-container');con.innerHTML='';
   const n=allP.length;
   allP.forEach((p,rawIdx)=>{
@@ -765,18 +772,21 @@ function renderGame(room){
       :`<div class="showdown-next" style="width:100%">
           <span class="waiting-next">⏳ Wachten op host voor volgende ronde…</span>
         </div>`;
-  } else if(abPanel.querySelector('.showdown-next')){
-    // Nieuwe ronde gestart – herstel knoppen
-    abPanel.innerHTML=
-      '<button class="action-btn btn-fold"  id="btn-fold"  onclick="doAction('fold')"  disabled>FOLD  <sub>Kaarten neerleggen</sub></button>'+
-      '<button class="action-btn btn-check" id="btn-check" onclick="doAction('check')" disabled>CHECK <sub>Niets inzetten</sub></button>'+
-      '<button class="action-btn btn-raise" id="btn-raise" onclick="openRaise()"       disabled>RAISE <sub>Meer inzetten</sub></button>'+
-      '<button class="action-btn btn-allin" id="btn-allin" onclick="doAction('allin')" disabled>ALL-IN<sub>Alles op het spel</sub></button>';
+  } else {
+    if(abPanel.querySelector('.showdown-next')){
+      // Nieuwe ronde gestart – herstel knoppen
+      abPanel.innerHTML=actionButtonsHtml();
+    }
+    ['btn-fold','btn-check','btn-raise','btn-allin'].forEach(id=>{
+      const btn=document.getElementById(id);
+      if(btn)btn.disabled=!myTurn;
+    });
+    const cb=document.getElementById('btn-check');
+    if(cb){
+      if(toCall<=0){cb.innerHTML='CHECK <sub>Niets inzetten</sub>';cb.className='action-btn btn-check';cb.onclick=()=>doAction('check');}
+      else{cb.innerHTML=`CALL €${toCall.toFixed(2)} <sub>Meebieden</sub>`;cb.className='action-btn btn-call';cb.onclick=()=>doAction('call');}
+    }
   }
-  ['btn-fold','btn-check','btn-raise','btn-allin'].forEach(id=>document.getElementById(id).disabled=!myTurn);
-  const cb=document.getElementById('btn-check');
-  if(toCall<=0){cb.innerHTML='CHECK <sub>Niets inzetten</sub>';cb.className='action-btn btn-check';cb.onclick=()=>doAction('check');}
-  else{cb.innerHTML=`CALL €${toCall.toFixed(2)} <sub>Meebieden</sub>`;cb.className='action-btn btn-call';cb.onclick=()=>doAction('call');}
 
   // Showdown: confetti 1x afspelen, daarna via renderSeats zichtbaar
   if(game.showdown&&!showdownShown){showdownShown=true;showShowdown(allP,community,game);}
