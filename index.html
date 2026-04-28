@@ -327,6 +327,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
         <div class="my-chips" id="my-chips">€0.00</div>
       </div>
       <div class="turn-badge" id="turn-badge" style="display:none">Jouw beurt!</div>
+      <button class="btn-force" id="btn-force" onclick="forceShowdown()" style="display:none;background:rgba(201,168,76,0.15);border:1px solid rgba(201,168,76,0.4);color:var(--gold);border-radius:8px;padding:0.3rem 0.8rem;font-family:Rajdhani,sans-serif;font-weight:700;font-size:0.78rem;cursor:pointer;letter-spacing:0.06em">🏆 Toon Winnaar</button>
     </div>
     <div class="action-buttons">
       <button class="action-btn btn-fold"  id="btn-fold"  onclick="doAction('fold')"  disabled>FOLD  <sub>Kaarten neerleggen</sub></button>
@@ -413,12 +414,27 @@ const SEAT_POS=[
 /* ═══════════════════════════════════════════════════════════
    SESSIE STATE
 ═══════════════════════════════════════════════════════════ */
-let myId   = sessionStorage.getItem('tvs_id')||crypto.randomUUID();
-sessionStorage.setItem('tvs_id',myId);
-let myName='',myColor=AVATAR_COLORS[0],myRoomCode='',isHost=false;
+// Persistente sessie via localStorage — overleeft page refresh
+let myId   = localStorage.getItem('tvs_id')||crypto.randomUUID();
+localStorage.setItem('tvs_id',myId);
+let myName  = localStorage.getItem('tvs_name')||'';
+let myColor = localStorage.getItem('tvs_color')||AVATAR_COLORS[0];
+let myRoomCode = localStorage.getItem('tvs_room')||'';
+let isHost  = localStorage.getItem('tvs_host')==='true';
 let selectedChips=10,selectedBlinds={sb:.25,bb:.50};
 let selectedAvatar={create:0,join:0},currentRaiseVal=.50;
 let roomRef=null,roomUnsub=null,emojiUnsub=null,lastSnap=null;
+
+function saveSession(){
+  localStorage.setItem('tvs_name',myName);
+  localStorage.setItem('tvs_color',myColor);
+  localStorage.setItem('tvs_room',myRoomCode);
+  localStorage.setItem('tvs_host',isHost?'true':'false');
+}
+function clearSession(){
+  ['tvs_name','tvs_color','tvs_room','tvs_host'].forEach(k=>localStorage.removeItem(k));
+  myRoomCode='';myName='';isHost=false;lastSnap=null;
+}
 
 /* ═══════════════════════════════════════════════════════════
    DECK ENGINE
@@ -478,6 +494,46 @@ function buildAvatarGrids(){
 }
 buildAvatarGrids();
 
+// Auto-reconnect na page refresh
+(async()=>{
+  const savedRoom=localStorage.getItem('tvs_room');
+  if(!savedRoom||!db)return;
+  try{
+    const snap=await get(ref(db,`rooms/${savedRoom}`));
+    if(!snap.exists()){
+      // Kamer bestaat niet meer — sessie wissen
+      clearSession();
+      showToast('⚠️ Vorige kamer bestaat niet meer');
+      return;
+    }
+    const room=snap.val();
+    const playerStillIn=room.players&&room.players[myId];
+    if(!playerStillIn){
+      clearSession();
+      showToast('⚠️ Je bent niet meer in de kamer');
+      return;
+    }
+    // Kamer gevonden — herverbinden!
+    myRoomCode=savedRoom;
+    myName=localStorage.getItem('tvs_name')||myName;
+    myColor=localStorage.getItem('tvs_color')||myColor;
+    isHost=localStorage.getItem('tvs_host')==='true';
+    selectedChips=room.settings?.chips||10;
+    selectedBlinds={sb:room.settings?.sb||.25,bb:room.settings?.bb||.50};
+    document.getElementById('display-code').textContent=myRoomCode;
+    document.getElementById('btn-start').style.display=isHost?'block':'none';
+    showToast('🔄 Herverbonden met '+myRoomCode);
+    listenRoom();
+    if(room.status==='waiting'){
+      window.showScreen('screen-waiting');
+    }
+    // Als status 'playing' is, handelt listenRoom/renderGame de schermwissel af
+  }catch(e){
+    console.warn('Auto-reconnect mislukt:',e);
+    clearSession();
+  }
+})();
+
 window.switchTab=tab=>{
   document.querySelectorAll('.lobby-tab').forEach((t,i)=>t.classList.toggle('active',(i===0)===(tab==='create')));
   document.getElementById('tab-create').classList.toggle('active',tab==='create');
@@ -498,6 +554,7 @@ window.createRoom=async()=>{
   myRoomCode='TAFEL-'+Math.floor(1000+Math.random()*9000);
   await set(ref(db,`rooms/${myRoomCode}`),{hostId:myId,status:'waiting',settings:{chips:selectedChips,sb:selectedBlinds.sb,bb:selectedBlinds.bb},created:Date.now()});
   await set(ref(db,`rooms/${myRoomCode}/players/${myId}`),{name:myName,color:myColor,chips:selectedChips,bet:0,totalBet:0,folded:false,allIn:false,lastAction:'',seatIndex:0,joinedAt:Date.now()});
+  saveSession();
   document.getElementById('display-code').textContent=myRoomCode;
   document.getElementById('btn-start').style.display='block';
   listenRoom();
@@ -521,6 +578,7 @@ window.joinRoom=async()=>{
   myName=name;myColor=AVATAR_COLORS[selectedAvatar.join];isHost=false;myRoomCode=code;
   selectedChips=room.settings.chips;selectedBlinds={sb:room.settings.sb,bb:room.settings.bb};
   await set(ref(db,`rooms/${code}/players/${myId}`),{name:myName,color:myColor,chips:selectedChips,bet:0,totalBet:0,folded:false,allIn:false,lastAction:'',seatIndex:count,joinedAt:Date.now()});
+  saveSession();
   document.getElementById('display-code').textContent=code;
   document.getElementById('btn-start').style.display='none';
   listenRoom();
@@ -657,14 +715,36 @@ function renderGame(room){
   const myTurn=toAct[0]===myId&&!me.folded&&!me.allIn&&!game.showdown;
   const toCall=Math.max(0,(game.currentBet||0)-(me.bet||0));
   document.getElementById('turn-badge').style.display=myTurn?'block':'none';
+  // Toon "Toon Winnaar" knop voor host als spel vastloopt
+  const stuck=isHost&&toAct.length===0&&(game.phase||0)<4&&!game.showdown;
+  const fbtn=document.getElementById('btn-force');
+  if(fbtn)fbtn.style.display=stuck?'inline-block':'none';
   ['btn-fold','btn-check','btn-raise','btn-allin'].forEach(id=>document.getElementById(id).disabled=!myTurn);
   const cb=document.getElementById('btn-check');
   if(toCall<=0){cb.innerHTML='CHECK <sub>Niets inzetten</sub>';cb.className='action-btn btn-check';cb.onclick=()=>doAction('check');}
   else{cb.innerHTML=`CALL €${toCall.toFixed(2)} <sub>Meebieden</sub>`;cb.className='action-btn btn-call';cb.onclick=()=>doAction('call');}
 
-  // Showdown
+  // Showdown tonen
   if(game.showdown&&!showdownShown){showdownShown=true;showShowdown(allP,community,game);}
   if(!game.showdown)showdownShown=false;
+
+  // Auto-advance: als toAct leeg is maar spel nog niet klaar → host triggert volgende fase
+  const allActive=allP.filter(p=>!p.folded&&!p.allIn);
+  if(isHost && toAct.length===0 && game.phase<4 && !game.showdown && !game._advancing){
+    setTimeout(async()=>{
+      const snap2=await get(ref(db,`rooms/${myRoomCode}`));
+      if(!snap2.exists())return;
+      const r2=snap2.val(),g2=r2.game||{};
+      const ta2=toArr(g2.toAct||[]);
+      if(ta2.length===0&&g2.phase<4&&!g2.showdown){
+        await update(ref(db,`rooms/${myRoomCode}/game`),{_advancing:true});
+        const alive2=Object.values(r2.players||{}).filter(p=>!p.folded);
+        if(alive2.length<=1){await endRound(r2.players,g2.pot,g2);}
+        else await nextPhase(r2);
+        await update(ref(db,`rooms/${myRoomCode}/game`),{_advancing:false});
+      }
+    },1200);
+  }
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -753,8 +833,23 @@ async function nextPhase(room){
   await update(ref(db,`rooms/${myRoomCode}`),{
     players:reset,
     'game/phase':nextPh,'game/pot':game.pot,'game/currentBet':0,
-    'game/community':comm,'game/deck':deck,'game/toAct':newToAct
+    'game/community':comm,'game/deck':deck,'game/toAct':newToAct,
+    'game/showdown':false,'game/_advancing':false
   });
+
+  // Als na fase-overgang niemand meer hoeft te acteren → meteen verder
+  if(newToAct.length===0&&isHost){
+    setTimeout(async()=>{
+      const snap3=await get(ref(db,`rooms/${myRoomCode}`));
+      if(!snap3.exists())return;
+      const r3=snap3.val(),g3=r3.game||{};
+      if(toArr(g3.toAct||[]).length===0&&g3.phase<4&&!g3.showdown){
+        const alive3=Object.values(r3.players||{}).filter(p=>!p.folded);
+        if(alive3.length<=1)await endRound(r3.players,g3.pot,g3);
+        else await nextPhase(r3);
+      }
+    },900);
+  }
 }
 
 async function endRound(players,pot,game){
@@ -807,6 +902,15 @@ function showShowdown(allP,community,game){
   spawnConfetti();
 }
 
+window.forceShowdown=async()=>{
+  if(!isHost)return;
+  const snap=await get(ref(db,`rooms/${myRoomCode}`));
+  if(!snap.exists())return;
+  const room=snap.val();
+  const alive=Object.values(room.players||{}).filter(p=>!p.folded);
+  if(alive.length<=1){await endRound(room.players,room.game?.pot||0,room.game||{});}
+  else await runShowdown(room);
+};
 window.nextRound=async()=>{
   if(!isHost){showToast('Alleen de host start de volgende ronde');return;}
   document.getElementById('winner-overlay').classList.remove('show');
@@ -844,7 +948,7 @@ window.leaveRoom=async()=>{
   if(roomUnsub){roomUnsub();roomUnsub=null;}
   if(emojiUnsub){emojiUnsub();emojiUnsub=null;}
   if(myRoomCode)await remove(ref(db,`rooms/${myRoomCode}/players/${myId}`));
-  myRoomCode='';lastSnap=null;
+  clearSession();
   window.showScreen('screen-home');
 };
 
