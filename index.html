@@ -373,17 +373,28 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
 import{initializeApp}from'https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js';
 import{getDatabase,ref,set,get,update,onValue,off,remove}from'https://www.gstatic.com/firebasejs/10.12.2/firebase-database.js';
 
-const app=initializeApp({
-  apiKey:"AIzaSyAPDqgBlrfSn43MlQXNMIDnGU8B4KD-ch0",
-  authDomain:"tafel-van-simon.firebaseapp.com",
-  databaseURL:"https://tafel-van-simon-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId:"tafel-van-simon",
-  storageBucket:"tafel-van-simon.firebasestorage.app",
-  messagingSenderId:"39838914763",
-  appId:"1:39838914763:web:1403ac706d1f3dce8ae34e"
-});
-const db=getDatabase(app);
-document.getElementById('connecting').classList.add('hidden');
+// Verberg overlay altijd na max 3 sec als fallback
+const hideOverlay=()=>document.getElementById('connecting').classList.add('hidden');
+setTimeout(hideOverlay,3000);
+
+let db;
+try{
+  const app=initializeApp({
+    apiKey:"AIzaSyAPDqgBlrfSn43MlQXNMIDnGU8B4KD-ch0",
+    authDomain:"tafel-van-simon.firebaseapp.com",
+    databaseURL:"https://tafel-van-simon-default-rtdb.europe-west1.firebasedatabase.app",
+    projectId:"tafel-van-simon",
+    storageBucket:"tafel-van-simon.firebasestorage.app",
+    messagingSenderId:"39838914763",
+    appId:"1:39838914763:web:1403ac706d1f3dce8ae34e"
+  });
+  db=getDatabase(app);
+  hideOverlay();
+  console.log('Firebase verbonden OK');
+}catch(e){
+  hideOverlay();
+  console.error('Firebase fout:',e.message);
+}
 
 /* ═══════════════════════════════════════════════════════════
    CONSTANTEN
