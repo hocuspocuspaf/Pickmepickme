@@ -1,7 +1,7 @@
 import{initFirebase,ref,set,get,update,onValue,onDisconnect}from'./firebase.js';
 import{AVATAR_COLORS,SEAT_POS}from'./constants.js';
 import{cmp,evalHand,mkDeck,shuffle}from'./poker.js';
-import{actionOrder,isPermissionDenied,nextSeat,toArr}from'./utils.js';
+import{actionOrder,actionOrderFromSeat,isPermissionDenied,nextSeat,nextSeatIn,toArr}from'./utils.js';
 import{hideOverlay,makeCard,sdCardHtml,showToast,spawnConfetti}from'./ui-elements.js';
 
 // Verberg overlay altijd na max 3 sec als fallback
@@ -199,6 +199,7 @@ window.createRoom=async()=>{
   myRoomCode='TAFEL-'+Math.floor(1000+Math.random()*9000);
   await set(ref(db,`rooms/${myRoomCode}`),{hostId:myId,status:'waiting',settings:{chips:selectedChips,sb:selectedBlinds.sb,bb:selectedBlinds.bb},created:Date.now()});
   await registerDisconnect(myRoomCode);
+  // Host krijgt altijd stoel 0 — dat blijft ook tussen rondes ongewijzigd.
   await set(ref(db,`rooms/${myRoomCode}/players/${myId}`),{name:myName,color:myColor,chips:selectedChips,bet:0,totalBet:0,folded:false,allIn:false,lastAction:'',seatIndex:0,connected:true,joinedAt:Date.now()});
   saveSession();
   document.getElementById('display-code').textContent=myRoomCode;
@@ -241,7 +242,13 @@ window.joinRoom=async()=>{
       [`rooms/${code}/players/${myId}/leftAt`]:null
     });
   }else{
-    await set(ref(db,`rooms/${code}/players/${myId}`),{name:myName,color:myColor,chips:selectedChips,bet:0,totalBet:0,folded:false,allIn:false,lastAction:'',seatIndex:count,connected:true,joinedAt:Date.now()});
+    // Zoek de eerste vrije stoel (0..9). Stoelen blijven eenmaal toegekend
+    // vast hangen aan de speler — ook als ze later disconnecten of bust gaan.
+    const usedSeats=new Set(Object.values(room.players||{}).map(p=>p.seatIndex));
+    let freeSeat=0;
+    while(usedSeats.has(freeSeat)&&freeSeat<10)freeSeat++;
+    if(freeSeat>=10){showToast('❌ Kamer vol (max 10)');return;}
+    await set(ref(db,`rooms/${code}/players/${myId}`),{name:myName,color:myColor,chips:selectedChips,bet:0,totalBet:0,folded:false,allIn:false,lastAction:'',seatIndex:freeSeat,connected:true,joinedAt:Date.now()});
   }
   saveSession();
   document.getElementById('display-code').textContent=code;
@@ -304,36 +311,55 @@ window.startGame=async()=>{
   const pl=all.filter(p=>p.connected!==false&&p.chips>0);
   const parked=all.filter(p=>p.connected===false||p.chips<=0);
   if(pl.length<2){showToast('⚠️ Minimaal 2 spelers nodig');return;}
-  await dealNewRound(pl,room.settings,0,1,parked);
+  // Eerste dealer = laagste actieve seatIndex (= host op stoel 0).
+  const firstDealer=Math.min(...pl.map(p=>p.seatIndex));
+  await dealNewRound(pl,room.settings,firstDealer,1,parked);
   await update(ref(db,`rooms/${myRoomCode}`),{status:'playing'});
 };
 
-async function dealNewRound(pl,settings,prevDealerSeat,roundNum,parked=[]){
-  const n=pl.length;
-  const dealerSeat=nextSeat(prevDealerSeat,n),sbSeat=nextSeat(dealerSeat,n),bbSeat=nextSeat(sbSeat,n);
+async function dealNewRound(pl,settings,dealerSeatIdx,roundNum,parked=[]){
   const sb=settings.sb,bb=settings.bb;
   const deck=shuffle(mkDeck());
   const pUpdates={},privateCards={};
   let startingPot=0,currentBet=0;
-  pl.forEach((p,i)=>{
+
+  // Werken met echte seatIndex'en (0–9). De seatIndex blijft tussen rondes
+  // ongewijzigd — spelers blijven aan dezelfde stoel zitten.
+  const activeSeats=pl.map(p=>p.seatIndex).sort((a,b)=>a-b);
+  let sbSeatIdx,bbSeatIdx;
+  if(activeSeats.length===2){
+    // Heads-up regel: dealer = SB, andere speler = BB.
+    sbSeatIdx=dealerSeatIdx;
+    bbSeatIdx=nextSeatIn(activeSeats,dealerSeatIdx);
+  }else{
+    sbSeatIdx=nextSeatIn(activeSeats,dealerSeatIdx);
+    bbSeatIdx=nextSeatIn(activeSeats,sbSeatIdx);
+  }
+
+  pl.forEach(p=>{
     const c1=deck.pop(),c2=deck.pop();
     let bet=0,chips=p.chips;
-    if(i===sbSeat){bet=Math.min(sb,chips);chips-=bet;}
-    if(i===bbSeat){bet=Math.min(bb,chips);chips-=bet;}
+    if(p.seatIndex===sbSeatIdx){bet=Math.min(sb,chips);chips-=bet;}
+    if(p.seatIndex===bbSeatIdx){bet=Math.min(bb,chips);chips-=bet;}
     startingPot+=bet;
     currentBet=Math.max(currentBet,bet);
     privateCards[p.id]={0:c1,1:c2};
-    pUpdates[p.id]={name:p.name,color:p.color,chips,bet,totalBet:bet,folded:false,allIn:chips===0,lastAction:'',seatIndex:i,connected:p.connected!==false,joinedAt:p.joinedAt||Date.now()};
+    pUpdates[p.id]={name:p.name,color:p.color,chips,bet,totalBet:bet,folded:false,allIn:chips===0,lastAction:'',seatIndex:p.seatIndex,connected:p.connected!==false,joinedAt:p.joinedAt||Date.now()};
   });
-  parked.forEach((p,i)=>{
-    pUpdates[p.id]={name:p.name,color:p.color,chips:p.chips||0,bet:0,totalBet:p.totalBet||0,folded:true,allIn:true,lastAction:'Offline',seatIndex:n+i,connected:false,joinedAt:p.joinedAt||Date.now(),leftAt:p.leftAt||Date.now()};
+  parked.forEach(p=>{
+    pUpdates[p.id]={name:p.name,color:p.color,chips:p.chips||0,bet:0,totalBet:p.totalBet||0,folded:true,allIn:true,lastAction:'Offline',seatIndex:p.seatIndex,connected:false,joinedAt:p.joinedAt||Date.now(),leftAt:p.leftAt||Date.now()};
   });
+
   const handPlayers=pl.map(p=>({id:p.id,...pUpdates[p.id]}));
-  const toAct=actionOrder(handPlayers,nextSeat(bbSeat,n));
+  // Pre-flop: actie begint na de BB (= UTG). In heads-up valt dat samen
+  // met de SB (= dealer), wat ook klopt voor heads-up regels.
+  const firstToAct=nextSeatIn(activeSeats,bbSeatIdx);
+  const toAct=actionOrderFromSeat(handPlayers,firstToAct,activeSeats);
+
   await update(ref(db),{
     [`rooms/${myRoomCode}/players`]:pUpdates,
     [`rooms/${myRoomCode}/actions`]:null,
-    [`rooms/${myRoomCode}/game`]:{phase:0,pot:Math.round(startingPot*100)/100,currentBet,dealerSeat,sbSeat,bbSeat,toAct,community:[],roundNum,showdown:false,winnerIds:[],showCards:{},actionNonce:0},
+    [`rooms/${myRoomCode}/game`]:{phase:0,pot:Math.round(startingPot*100)/100,currentBet,dealerSeat:dealerSeatIdx,sbSeat:sbSeatIdx,bbSeat:bbSeatIdx,toAct,community:[],roundNum,showdown:false,winnerIds:[],showCards:{},actionNonce:0},
     [`roomSecrets/${myRoomCode}/deck`]:deck,
     [`roomSecrets/${myRoomCode}/cards`]:privateCards
   });
@@ -356,6 +382,7 @@ function renderGame(room){
   const game=room.game||{},pl=room.players||{};
   const allP=Object.entries(pl).map(([id,p])=>({id,...p})).sort((a,b)=>a.seatIndex-b.seatIndex);
   const myIdx=allP.findIndex(p=>p.id===myId);
+  const mySeatIdx=allP[myIdx]?.seatIndex??0;
   const toAct=toArr(game.toAct||[]);
   const community=toArr(game.community||[]);
   const winnerIds=toArr(game.winnerIds||[]);
@@ -381,18 +408,17 @@ function renderGame(room){
   }
   document.getElementById('game-phase').textContent=PHASES[game.phase]||'Pre-Flop';
 
-  // Seats
+  // Seats — visuele positie bepaald door echte seatIndex (vast op de tafel).
   const con=document.getElementById('seats-container');con.innerHTML='';
-  const n=allP.length;
-  allP.forEach((p,rawIdx)=>{
-    const vis=(rawIdx-myIdx+n)%n;
+  allP.forEach(p=>{
+    const vis=(p.seatIndex-mySeatIdx+10)%10;
     const pos=SEAT_POS[Math.min(vis,9)];
     const isActive=toAct[0]===p.id;
     const isWinner=winnerIds.includes(p.id);
     let badge='';
-    if(rawIdx===game.dealerSeat)badge='<div class="seat-badge badge-D">D</div>';
-    else if(rawIdx===game.sbSeat)badge='<div class="seat-badge badge-SB">SB</div>';
-    else if(rawIdx===game.bbSeat)badge='<div class="seat-badge badge-BB">BB</div>';
+    if(p.seatIndex===game.dealerSeat)badge='<div class="seat-badge badge-D">D</div>';
+    else if(p.seatIndex===game.sbSeat)badge='<div class="seat-badge badge-SB">SB</div>';
+    else if(p.seatIndex===game.bbSeat)badge='<div class="seat-badge badge-BB">BB</div>';
     const aMap={Fold:'fold',Check:'check',Call:'call',Raise:'raise','All-In':'all-in'};
     const actHtml=(!isShowdown&&p.lastAction)?`<div class="seat-action action-${aMap[p.lastAction]||'check'}">${p.lastAction}</div>`:'';
     // Kaarten: bij showdown face-up tonen voor niet-gefoldde spelers
@@ -595,9 +621,13 @@ async function applyPlayerAction(playerId,actionReq,room){
   }
 
   if(needReopen){
-    const allP=Object.entries(players).map(([id,p])=>({id,...p})).sort((a,b)=>a.seatIndex-b.seatIndex);
-    const mi=allP.findIndex(p=>p.id===playerId),nn=allP.length;
-    newToAct=actionOrder(allP,nextSeat(mi,nn),nn-1);
+    // Bij een raise heropent het bieden — alle andere niet-gefoldde,
+    // niet all-in spelers moeten opnieuw kunnen reageren. We werken nu
+    // op echte seatIndex'en, dus stoelen kunnen sparse zijn (gaten).
+    const allPArr=Object.entries(players).map(([id,p])=>({id,...p,folded:id===playerId?nm.folded:p.folded,allIn:id===playerId?nm.allIn:p.allIn}));
+    const liveSeats=allPArr.filter(x=>!x.folded).map(x=>x.seatIndex).sort((a,b)=>a-b);
+    const restartSeat=nextSeatIn(liveSeats,me.seatIndex);
+    newToAct=actionOrderFromSeat(allPArr,restartSeat,liveSeats,liveSeats.length-1);
   }
 
   const updatedPlayers={...players,[playerId]:nm};
@@ -626,8 +656,12 @@ async function nextPhase(room){
   const deck=toArr(deckSnap.val()||game.deck||[]),comm=toArr(game.community||[]);
   if(nextPh===1){comm.push(deck.pop(),deck.pop(),deck.pop());}else{comm.push(deck.pop());}
   const allP=Object.entries(players).map(([id,p])=>({id,...p})).sort((a,b)=>a.seatIndex-b.seatIndex);
-  const ds=game.dealerSeat||0,nn=allP.length;
-  const newToAct=actionOrder(allP,nextSeat(ds,nn));
+  // Postflop: actie begint bij eerste niet-gefoldde stoel ná de dealer.
+  // In heads-up valt dat samen met de BB, wat klopt voor heads-up regels.
+  const liveSeats=allP.filter(p=>!p.folded).map(p=>p.seatIndex).sort((a,b)=>a-b);
+  const ds=game.dealerSeat??0;
+  const firstToAct=nextSeatIn(liveSeats,ds);
+  const newToAct=actionOrderFromSeat(allP,firstToAct,liveSeats);
   const reset={};allP.forEach(p=>{const{cards,...clean}=players[p.id];reset[p.id]={...clean,bet:0,lastAction:''};});
   await update(ref(db,`rooms/${myRoomCode}`),{
     players:reset,
@@ -723,11 +757,16 @@ window.nextRound=async()=>{
   showdownShown=false;
   const snap=await get(ref(db,`rooms/${myRoomCode}`));
   const room=snap.val();
-  const allP=Object.entries(room.players||{}).map(([id,p])=>({id,...p})).sort((a,b)=>a.seatIndex-b.seatIndex).filter(p=>p.chips>0);
-  const active=allP.filter(p=>p.connected!==false);
-  const parked=allP.filter(p=>p.connected===false);
+  const allP=Object.entries(room.players||{}).map(([id,p])=>({id,...p}));
+  const active=allP.filter(p=>p.connected!==false&&p.chips>0);
+  const parked=allP.filter(p=>p.connected===false||p.chips<=0);
   if(active.length<2){showToast('Te weinig spelers met chips!');return;}
-  await dealNewRound(active,room.settings,nextSeat(room.game?.dealerSeat||0,active.length),(room.game?.roundNum||1)+1,parked);
+  // De dealer schuift exact 1 plek door naar de eerstvolgende actieve stoel.
+  // (We sturen niet langer een "extra" nextSeat door — dat veroorzaakte de +2 bug.)
+  const oldDealer=room.game?.dealerSeat??-1;
+  const activeSeats=active.map(p=>p.seatIndex).sort((a,b)=>a-b);
+  const newDealer=nextSeatIn(activeSeats,oldDealer);
+  await dealNewRound(active,room.settings,newDealer,(room.game?.roundNum||1)+1,parked);
   showToast(`🔄 Ronde ${(room.game?.roundNum||1)+1} gestart!`);
 };
 
