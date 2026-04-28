@@ -466,7 +466,7 @@ let myRoomCode = localStorage.getItem('tvs_room')||'';
 let isHost  = localStorage.getItem('tvs_host')==='true';
 let selectedChips=10,selectedBlinds={sb:.25,bb:.50};
 let selectedAvatar={create:0,join:0},currentRaiseVal=.50;
-let roomRef=null,roomUnsub=null,emojiUnsub=null,cardsUnsub=null,lastSnap=null,myCardsCache=[],processingAction=false;
+let roomRef=null,roomUnsub=null,emojiUnsub=null,cardsUnsub=null,lastSnap=null,myCardsCache=[],processingAction=false,pendingAction=false;
 
 function saveSession(){
   localStorage.setItem('tvs_name',myName);
@@ -478,6 +478,7 @@ function clearSession(){
   ['tvs_id','tvs_name','tvs_color','tvs_room','tvs_host'].forEach(k=>localStorage.removeItem(k));
   myRoomCode='';myName='';isHost=false;lastSnap=null;
   myCardsCache=[];
+  pendingAction=false;
   hideResumePanel();
 }
 
@@ -569,6 +570,16 @@ function evalHand(cards){
    FIREBASE HELPER
 ═══════════════════════════════════════════════════════════ */
 function toArr(o){if(!o)return[];if(Array.isArray(o))return o;return Object.keys(o).sort((a,b)=>+a-+b).map(k=>o[k]);}
+function isPermissionDenied(e){return e?.code==='PERMISSION_DENIED'||/permission denied/i.test(e?.message||'');}
+function nextSeat(seat,count,steps=1){return count?((seat+steps)%count+count)%count:0;}
+function actionOrder(players,startSeat,limit=players.length){
+  const ids=[],n=players.length;
+  for(let step=0;step<Math.min(limit,n);step++){
+    const p=players[nextSeat(startSeat,n,step)];
+    if(p&&!p.folded&&!p.allIn)ids.push(p.id);
+  }
+  return ids;
+}
 
 /* ═══════════════════════════════════════════════════════════
    LOBBY UI — expose to window (onclick attr werkt in modules)
@@ -612,7 +623,7 @@ buildAvatarGrids();
     }
     showResumePanel(room,savedRoom);
   }catch(e){
-    console.warn('Sessiekeuze laden mislukt:',e);
+    if(!isPermissionDenied(e))console.warn('Sessiekeuze laden mislukt:',e);
     clearSession();
   }
 })();
@@ -789,27 +800,30 @@ window.startGame=async()=>{
 
 async function dealNewRound(pl,settings,prevDealerSeat,roundNum,parked=[]){
   const n=pl.length;
-  const dealerSeat=prevDealerSeat%n,sbSeat=(dealerSeat+1)%n,bbSeat=(dealerSeat+2)%n;
+  const dealerSeat=nextSeat(prevDealerSeat,n),sbSeat=nextSeat(dealerSeat,n),bbSeat=nextSeat(sbSeat,n);
   const sb=settings.sb,bb=settings.bb;
   const deck=shuffle(mkDeck());
   const pUpdates={},privateCards={};
+  let startingPot=0,currentBet=0;
   pl.forEach((p,i)=>{
     const c1=deck.pop(),c2=deck.pop();
     let bet=0,chips=p.chips;
     if(i===sbSeat){bet=Math.min(sb,chips);chips-=bet;}
     if(i===bbSeat){bet=Math.min(bb,chips);chips-=bet;}
+    startingPot+=bet;
+    currentBet=Math.max(currentBet,bet);
     privateCards[p.id]={0:c1,1:c2};
     pUpdates[p.id]={name:p.name,color:p.color,chips,bet,totalBet:bet,folded:false,allIn:chips===0,lastAction:'',seatIndex:i,connected:p.connected!==false,joinedAt:p.joinedAt||Date.now()};
   });
   parked.forEach((p,i)=>{
     pUpdates[p.id]={name:p.name,color:p.color,chips:p.chips||0,bet:0,totalBet:p.totalBet||0,folded:true,allIn:true,lastAction:'Offline',seatIndex:n+i,connected:false,joinedAt:p.joinedAt||Date.now(),leftAt:p.leftAt||Date.now()};
   });
-  const toAct=[];
-  for(let i=(bbSeat+1)%n;;i=(i+1)%n){toAct.push(pl[i].id);if(i===bbSeat)break;}
+  const handPlayers=pl.map(p=>({id:p.id,...pUpdates[p.id]}));
+  const toAct=actionOrder(handPlayers,nextSeat(bbSeat,n));
   await update(ref(db),{
     [`rooms/${myRoomCode}/players`]:pUpdates,
     [`rooms/${myRoomCode}/actions`]:null,
-    [`rooms/${myRoomCode}/game`]:{phase:0,pot:sb+bb,currentBet:bb,dealerSeat,sbSeat,bbSeat,toAct,community:[],roundNum,showdown:false,winnerIds:[],showCards:{}},
+    [`rooms/${myRoomCode}/game`]:{phase:0,pot:Math.round(startingPot*100)/100,currentBet,dealerSeat,sbSeat,bbSeat,toAct,community:[],roundNum,showdown:false,winnerIds:[],showCards:{},actionNonce:0},
     [`roomSecrets/${myRoomCode}/deck`]:deck,
     [`roomSecrets/${myRoomCode}/cards`]:privateCards
   });
@@ -898,13 +912,15 @@ function renderGame(room){
   // Mijn kaarten + info
   const me=pl[myId]||{};
   const ownCards=myCardsCache.length?myCardsCache:toArr(me.cards||[]);
+  if(!room.actions?.[myId])pendingAction=false;
   const mc=document.getElementById('my-cards');mc.innerHTML='';
   ownCards.forEach(c=>mc.appendChild(makeCard(c.r,c.s,true)));
   document.getElementById('my-name').textContent=me.name||myName;
   document.getElementById('my-chips').textContent=`€${(me.chips||0).toFixed(2)}`;
 
   // Actie knoppen
-  const myTurn=toAct[0]===myId&&!me.folded&&!me.allIn&&!game.showdown;
+  const myActionPending=pendingAction||!!room.actions?.[myId];
+  const myTurn=toAct[0]===myId&&!me.folded&&!me.allIn&&!game.showdown&&!myActionPending;
   const toCall=Math.max(0,(game.currentBet||0)-(me.bet||0));
   document.getElementById('turn-badge').style.display=(myTurn&&!isShowdown)?'block':'none';
   // Toon "Toon Winnaar" knop voor host als spel vastloopt
@@ -983,10 +999,16 @@ function renderGame(room){
    ACTIES
 ═══════════════════════════════════════════════════════════ */
 async function submitAction(type,amount=null){
-  if(!lastSnap)return;
+  if(!lastSnap||pendingAction||lastSnap.actions?.[myId])return;
   const toAct=toArr(lastSnap.game?.toAct||[]);
   if(toAct[0]!==myId)return;
-  await set(ref(db,`rooms/${myRoomCode}/actions/${myId}`),{type,amount,ts:Date.now()});
+  pendingAction=true;
+  try{
+    await set(ref(db,`rooms/${myRoomCode}/actions/${myId}`),{type,amount,ts:Date.now(),nonce:lastSnap.game?.actionNonce||0});
+  }catch(e){
+    pendingAction=false;
+    throw e;
+  }
   const lbl={fold:'🃏 Gefold',check:'✋ Check',call:'📞 Call',allin:'💥 ALL-IN!',raise:'💰 Raise aangevraagd'};
   showToast(lbl[type]||type);
 }
@@ -1011,6 +1033,12 @@ async function processPendingActions(room){
   if(!currentId)return;
   const action=room.actions?.[currentId]||(room.players?.[currentId]?.connected===false?{type:'fold',auto:true}:null);
   if(!action)return;
+  if(!action.auto&&action.nonce!==(room.game?.actionNonce||0)){
+    processingAction=true;
+    try{await set(ref(db,`rooms/${myRoomCode}/actions/${currentId}`),null);}
+    finally{processingAction=false;}
+    return;
+  }
   processingAction=true;
   try{
     await applyPlayerAction(currentId,action,room);
@@ -1059,8 +1087,7 @@ async function applyPlayerAction(playerId,actionReq,room){
   if(needReopen){
     const allP=Object.entries(players).map(([id,p])=>({id,...p})).sort((a,b)=>a.seatIndex-b.seatIndex);
     const mi=allP.findIndex(p=>p.id===playerId),nn=allP.length;
-    newToAct=[];
-    for(let i=1;i<nn;i++){const p=allP[(mi+i)%nn];if(!p.folded&&!p.allIn)newToAct.push(p.id);}
+    newToAct=actionOrder(allP,nextSeat(mi,nn),nn-1);
   }
 
   const updatedPlayers={...players,[playerId]:nm};
@@ -1069,6 +1096,7 @@ async function applyPlayerAction(playerId,actionReq,room){
     [`rooms/${myRoomCode}/game/pot`]:Math.round(pot*100)/100,
     [`rooms/${myRoomCode}/game/currentBet`]:Math.round(curBet*100)/100,
     [`rooms/${myRoomCode}/game/toAct`]:newToAct,
+    [`rooms/${myRoomCode}/game/actionNonce`]:(game.actionNonce||0)+1,
     [`rooms/${myRoomCode}/actions/${playerId}`]:null
   });
 
@@ -1089,11 +1117,11 @@ async function nextPhase(room){
   if(nextPh===1){comm.push(deck.pop(),deck.pop(),deck.pop());}else{comm.push(deck.pop());}
   const allP=Object.entries(players).map(([id,p])=>({id,...p})).sort((a,b)=>a.seatIndex-b.seatIndex);
   const ds=game.dealerSeat||0,nn=allP.length;
-  const newToAct=[];
-  for(let i=1;i<=nn;i++){const p=allP[(ds+i)%nn];if(!p.folded&&!p.allIn)newToAct.push(p.id);}
+  const newToAct=actionOrder(allP,nextSeat(ds,nn));
   const reset={};allP.forEach(p=>{const{cards,...clean}=players[p.id];reset[p.id]={...clean,bet:0,lastAction:''};});
   await update(ref(db,`rooms/${myRoomCode}`),{
     players:reset,
+    actions:null,
     'game/phase':nextPh,'game/pot':game.pot,'game/currentBet':0,
     'game/community':comm,'game/toAct':newToAct,
     'game/showdown':false,'game/showCards':{},'game/_advancing':false
@@ -1126,6 +1154,7 @@ async function endRound(players,pot,game){
   const updated={...winnerClean,chips:Math.round((players[wId].chips+pot)*100)/100};
   await update(ref(db),{
     [`rooms/${myRoomCode}/players/${wId}`]:updated,
+    [`rooms/${myRoomCode}/actions`]:null,
     [`rooms/${myRoomCode}/game/pot`]:0,
     [`rooms/${myRoomCode}/game/phase`]:4,
     [`rooms/${myRoomCode}/game/showdown`]:true,
@@ -1157,6 +1186,7 @@ async function runShowdown(room){
   winners.forEach(w=>{pUp[w.id].chips=Math.round((pUp[w.id].chips+share)*100)/100;});
   await update(ref(db,`rooms/${myRoomCode}`),{
     players:pUp,
+    actions:null,
     'game/pot':0,'game/phase':4,'game/showdown':true,
     'game/winnerIds':winners.map(w=>w.id),
     'game/showCards':showCards
@@ -1187,7 +1217,7 @@ window.nextRound=async()=>{
   const active=allP.filter(p=>p.connected!==false);
   const parked=allP.filter(p=>p.connected===false);
   if(active.length<2){showToast('Te weinig spelers met chips!');return;}
-  await dealNewRound(active,room.settings,(room.game?.dealerSeat||0)+1,(room.game?.roundNum||1)+1,parked);
+  await dealNewRound(active,room.settings,nextSeat(room.game?.dealerSeat||0,active.length),(room.game?.roundNum||1)+1,parked);
   showToast(`🔄 Ronde ${(room.game?.roundNum||1)+1} gestart!`);
 };
 
@@ -1236,6 +1266,7 @@ window.leaveRoom=async()=>{
   if(roomUnsub){roomUnsub();roomUnsub=null;}
   if(emojiUnsub){emojiUnsub();emojiUnsub=null;}
   if(cardsUnsub){cardsUnsub();cardsUnsub=null;}
+  pendingAction=false;
   window.showScreen('screen-home');
   showToast('Je bent tijdelijk van tafel');
   const code=localStorage.getItem('tvs_room');

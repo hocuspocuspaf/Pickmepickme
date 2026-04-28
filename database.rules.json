@@ -56,7 +56,7 @@
         "actions": {
           "$uid": {
             ".write": "auth != null && (($uid === auth.uid && root.child('rooms').child($room).child('players').child(auth.uid).exists()) || root.child('rooms').child($room).child('hostId').val() === auth.uid)",
-            ".validate": "newData.val() === null || (newData.hasChildren(['type', 'ts']) && newData.child('ts').isNumber() && (newData.child('type').val() === 'fold' || newData.child('type').val() === 'check' || newData.child('type').val() === 'call' || newData.child('type').val() === 'raise' || newData.child('type').val() === 'allin') && (!newData.child('amount').exists() || newData.child('amount').isNumber()))"
+            ".validate": "newData.val() === null || (newData.hasChildren(['type', 'ts']) && newData.child('ts').isNumber() && (newData.child('type').val() === 'fold' || newData.child('type').val() === 'check' || newData.child('type').val() === 'call' || newData.child('type').val() === 'raise' || newData.child('type').val() === 'allin') && (!newData.child('amount').exists() || newData.child('amount').isNumber()) && (!newData.child('nonce').exists() || newData.child('nonce').isNumber()))"
           }
         },
         "emoji": {
