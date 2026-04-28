@@ -52,6 +52,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
 .chips-preset{flex:1;padding:.45rem .3rem;background:var(--surface2);border:1px solid var(--border);border-radius:6px;text-align:center;cursor:pointer;font-family:'Rajdhani',sans-serif;font-weight:600;font-size:.8rem;color:var(--text-dim);transition:all .2s}
 .chips-preset.selected{border-color:var(--gold);color:var(--gold);background:rgba(201,168,76,.08)}
 .chips-preset:hover:not(.selected){border-color:rgba(201,168,76,.3);color:var(--text)}
+.resume-panel{display:none;border:1px solid rgba(201,168,76,.28);background:rgba(201,168,76,.06);border-radius:10px;padding:.85rem;margin-bottom:1.1rem}
+.resume-panel.show{display:block}
+.resume-title{font-weight:700;color:var(--gold);font-size:.9rem;letter-spacing:.08em;text-transform:uppercase;margin-bottom:.25rem}
+.resume-meta{color:var(--text-dim);font-size:.82rem;margin-bottom:.75rem}
+.resume-actions{display:flex;gap:7px}
+.resume-actions .btn{padding:.6rem .5rem;font-size:.78rem}
 .btn{display:block;width:100%;padding:.85rem;border-radius:8px;border:none;cursor:pointer;font-family:'Rajdhani',sans-serif;font-weight:700;font-size:.95rem;letter-spacing:.1em;text-transform:uppercase;transition:all .2s}
 .btn-gold{background:linear-gradient(135deg,var(--gold-dark),var(--gold),var(--gold-light));color:#1a1000;box-shadow:0 4px 18px rgba(201,168,76,.28)}
 .btn-gold:hover{transform:translateY(-1px);box-shadow:0 6px 22px rgba(201,168,76,.4)}
@@ -75,6 +81,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
 .pbadge{font-size:.68rem;padding:.18rem .5rem;border-radius:4px;letter-spacing:.1em;text-transform:uppercase;font-weight:700}
 .badge-host{background:rgba(201,168,76,.12);color:var(--gold);border:1px solid rgba(201,168,76,.3)}
 .badge-ready{background:rgba(42,138,80,.12);color:#4aaa70;border:1px solid rgba(42,138,80,.3)}
+.badge-offline{background:rgba(90,90,90,.12);color:#777;border:1px solid rgba(90,90,90,.3)}
 .waiting-status{text-align:center;padding:.65rem;background:var(--surface2);border-radius:8px;color:var(--text-dim);font-size:.82rem;margin-bottom:1.3rem}
 .pulse{display:inline-block;width:7px;height:7px;background:var(--gold);border-radius:50%;margin-right:7px;animation:pulseAnim 1.5s ease infinite}
 @keyframes pulseAnim{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
@@ -88,6 +95,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
 .emoji-panel{display:flex;gap:3px}
 .emoji-btn{background:none;border:1px solid var(--border);border-radius:18px;padding:.28rem .48rem;cursor:pointer;font-size:1rem;transition:all .14s;line-height:1}
 .emoji-btn:hover{background:var(--surface2);border-color:var(--gold);transform:scale(1.12)}
+.emoji-btn.danger:hover{border-color:var(--red);color:var(--red)}
 
 /* TABLE */
 .table-area{flex:1;position:relative;display:flex;align-items:center;justify-content:center;padding:.5rem 1rem;overflow:hidden}
@@ -241,6 +249,15 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
     <p>Private table — vrienden only</p>
   </div>
   <div class="lobby-card">
+    <div class="resume-panel" id="resume-panel">
+      <div class="resume-title">Vorige tafel gevonden</div>
+      <div class="resume-meta" id="resume-meta">Je kunt opnieuw aansluiten.</div>
+      <div class="resume-actions">
+        <button class="btn btn-gold" onclick="resumeRoom()">Terug</button>
+        <button class="btn btn-ghost" id="resume-forget-btn" onclick="forgetSavedRoom()">Nieuwe tafel</button>
+        <button class="btn btn-ghost" id="resume-close-btn" onclick="closeRoom()" style="display:none">Sluit tafel</button>
+      </div>
+    </div>
     <div class="lobby-tabs">
       <button class="lobby-tab active" onclick="switchTab('create')">Kamer aanmaken</button>
       <button class="lobby-tab"        onclick="switchTab('join')">Kamer joinen</button>
@@ -308,6 +325,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
     </div>
     <div class="players-list" id="waiting-players"></div>
     <button class="btn btn-gold"  id="btn-start"  onclick="startGame()">▶ Start het Spel</button>
+    <button class="btn btn-ghost" id="btn-close-room-waiting" onclick="closeRoom()" style="display:none;margin-top:7px">Tafel sluiten</button>
     <button class="btn btn-ghost" onclick="leaveRoom()" style="margin-top:7px">← Verlaat kamer</button>
   </div>
 </div>
@@ -320,6 +338,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
       <span class="phase-badge" id="game-phase">Pre-Flop</span>
     </div>
     <div class="emoji-panel">
+      <button class="emoji-btn" onclick="leaveRoom()" title="Verlaat tafel">↩</button>
+      <button class="emoji-btn danger" id="btn-close-room-game" onclick="closeRoom()" title="Tafel sluiten" style="display:none">×</button>
       <button class="emoji-btn" onclick="sendEmoji('😂')">😂</button>
       <button class="emoji-btn" onclick="sendEmoji('🤔')">🤔</button>
       <button class="emoji-btn" onclick="sendEmoji('😤')">😤</button>
@@ -443,6 +463,39 @@ function saveSession(){
 function clearSession(){
   ['tvs_name','tvs_color','tvs_room','tvs_host'].forEach(k=>localStorage.removeItem(k));
   myRoomCode='';myName='';isHost=false;lastSnap=null;
+  hideResumePanel();
+}
+
+function hideResumePanel(){document.getElementById('resume-panel')?.classList.remove('show');}
+function showResumePanel(room,code){
+  const p=room.players?.[myId];
+  const panel=document.getElementById('resume-panel');
+  if(!panel||!p)return;
+  myName=p.name||localStorage.getItem('tvs_name')||'';
+  myColor=p.color||localStorage.getItem('tvs_color')||myColor;
+  const savedHost=room.hostId===myId;
+  document.getElementById('resume-meta').textContent=`${code} · ${myName||'speler'} · ${room.status==='playing'?'spel bezig':'wachtkamer'}`;
+  document.getElementById('resume-forget-btn').style.display=savedHost?'none':'block';
+  document.getElementById('resume-close-btn').style.display=savedHost?'block':'none';
+  ['create-name','join-name'].forEach(id=>{const el=document.getElementById(id);if(el&&!el.value)el.value=myName;});
+  panel.classList.add('show');
+}
+function setRoomControls(room){
+  const canHost=room?.hostId===myId;
+  isHost=!!canHost;
+  const start=document.getElementById('btn-start');
+  if(start)start.style.display=(canHost&&room?.status==='waiting')?'block':'none';
+  const closeWaiting=document.getElementById('btn-close-room-waiting');
+  if(closeWaiting)closeWaiting.style.display=canHost?'block':'none';
+  const closeGame=document.getElementById('btn-close-room-game');
+  if(closeGame)closeGame.style.display=canHost?'inline-block':'none';
+}
+function goHomeAfterRoomEnded(msg){
+  if(roomUnsub){roomUnsub();roomUnsub=null;}
+  if(emojiUnsub){emojiUnsub();emojiUnsub=null;}
+  clearSession();
+  window.showScreen('screen-home');
+  showToast(msg);
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -503,42 +556,32 @@ function buildAvatarGrids(){
 }
 buildAvatarGrids();
 
-// Auto-reconnect na page refresh
+// Toon een keuze na refresh in plaats van meteen opnieuw te verbinden
 (async()=>{
   const savedRoom=localStorage.getItem('tvs_room');
   if(!savedRoom||!db)return;
   try{
     const snap=await get(ref(db,`rooms/${savedRoom}`));
     if(!snap.exists()){
-      // Kamer bestaat niet meer — sessie wissen
       clearSession();
       showToast('⚠️ Vorige kamer bestaat niet meer');
       return;
     }
     const room=snap.val();
+    if(room.status==='closed'){
+      clearSession();
+      showToast('🔒 Vorige tafel is afgesloten');
+      return;
+    }
     const playerStillIn=room.players&&room.players[myId];
     if(!playerStillIn){
       clearSession();
       showToast('⚠️ Je bent niet meer in de kamer');
       return;
     }
-    // Kamer gevonden — herverbinden!
-    myRoomCode=savedRoom;
-    myName=localStorage.getItem('tvs_name')||myName;
-    myColor=localStorage.getItem('tvs_color')||myColor;
-    isHost=localStorage.getItem('tvs_host')==='true';
-    selectedChips=room.settings?.chips||10;
-    selectedBlinds={sb:room.settings?.sb||.25,bb:room.settings?.bb||.50};
-    document.getElementById('display-code').textContent=myRoomCode;
-    document.getElementById('btn-start').style.display=isHost?'block':'none';
-    showToast('🔄 Herverbonden met '+myRoomCode);
-    listenRoom();
-    if(room.status==='waiting'){
-      window.showScreen('screen-waiting');
-    }
-    // Als status 'playing' is, handelt listenRoom/renderGame de schermwissel af
+    showResumePanel(room,savedRoom);
   }catch(e){
-    console.warn('Auto-reconnect mislukt:',e);
+    console.warn('Sessiekeuze laden mislukt:',e);
     clearSession();
   }
 })();
@@ -553,19 +596,59 @@ window.selectBlinds=el=>{document.querySelectorAll('#blind-presets .chips-preset
 window.showScreen=id=>{document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));document.getElementById(id).classList.add('active');};
 window.copyCode=()=>{navigator.clipboard?.writeText(myRoomCode);showToast('📋 Code gekopieerd!');};
 
+window.resumeRoom=async()=>{
+  const code=localStorage.getItem('tvs_room');
+  if(!code||!db){clearSession();return;}
+  const snap=await get(ref(db,`rooms/${code}`));
+  if(!snap.exists()){clearSession();showToast('⚠️ Tafel bestaat niet meer');return;}
+  const room=snap.val();
+  if(room.status==='closed'){clearSession();showToast('🔒 Tafel is afgesloten');return;}
+  const p=room.players?.[myId];
+  if(!p){clearSession();showToast('⚠️ Je plek bestaat niet meer');return;}
+  myRoomCode=code;
+  myName=p.name||localStorage.getItem('tvs_name')||myName;
+  myColor=p.color||localStorage.getItem('tvs_color')||myColor;
+  selectedChips=room.settings?.chips||10;
+  selectedBlinds={sb:room.settings?.sb||.25,bb:room.settings?.bb||.50};
+  setRoomControls(room);
+  saveSession();
+  await update(ref(db),{
+    [`rooms/${code}/players/${myId}/connected`]:true,
+    [`rooms/${code}/players/${myId}/leftAt`]:null,
+    [`rooms/${code}/players/${myId}/name`]:myName,
+    [`rooms/${code}/players/${myId}/color`]:myColor
+  });
+  hideResumePanel();
+  document.getElementById('display-code').textContent=code;
+  listenRoom();
+  if(room.status==='waiting')window.showScreen('screen-waiting');
+  showToast('🔄 Terug aan tafel');
+};
+
+window.forgetSavedRoom=async()=>{
+  const code=localStorage.getItem('tvs_room');
+  try{
+    if(db&&code)await update(ref(db,`rooms/${code}/players/${myId}`),{connected:false,leftAt:Date.now()});
+  }catch(e){console.warn('Tafel loslaten mislukt:',e);}
+  clearSession();
+  window.showScreen('screen-home');
+  showToast('Nieuwe tafel kan gestart worden');
+};
+
 /* ═══════════════════════════════════════════════════════════
    KAMER AANMAKEN
 ═══════════════════════════════════════════════════════════ */
 window.createRoom=async()=>{
   const name=document.getElementById('create-name').value.trim();
   if(!name){showToast('⚠️ Voer je naam in');return;}
+  hideResumePanel();
   myName=name;myColor=AVATAR_COLORS[selectedAvatar.create];isHost=true;
   myRoomCode='TAFEL-'+Math.floor(1000+Math.random()*9000);
   await set(ref(db,`rooms/${myRoomCode}`),{hostId:myId,status:'waiting',settings:{chips:selectedChips,sb:selectedBlinds.sb,bb:selectedBlinds.bb},created:Date.now()});
-  await set(ref(db,`rooms/${myRoomCode}/players/${myId}`),{name:myName,color:myColor,chips:selectedChips,bet:0,totalBet:0,folded:false,allIn:false,lastAction:'',seatIndex:0,joinedAt:Date.now()});
+  await set(ref(db,`rooms/${myRoomCode}/players/${myId}`),{name:myName,color:myColor,chips:selectedChips,bet:0,totalBet:0,folded:false,allIn:false,lastAction:'',seatIndex:0,connected:true,joinedAt:Date.now()});
   saveSession();
   document.getElementById('display-code').textContent=myRoomCode;
-  document.getElementById('btn-start').style.display='block';
+  setRoomControls({hostId:myId,status:'waiting'});
   listenRoom();
   window.showScreen('screen-waiting');
 };
@@ -581,18 +664,29 @@ window.joinRoom=async()=>{
   const snap=await get(ref(db,`rooms/${code}`));
   if(!snap.exists()){showToast('❌ Kamer niet gevonden');return;}
   const room=snap.val();
-  if(room.status==='playing'){showToast('❌ Spel is al bezig');return;}
+  if(room.status==='closed'){showToast('🔒 Deze tafel is afgesloten');return;}
+  const existing=room.players?.[myId];
+  if(room.status==='playing'&&!existing){showToast('❌ Spel is al bezig');return;}
   const count=Object.keys(room.players||{}).length;
-  if(count>=10){showToast('❌ Kamer vol (max 10)');return;}
-  myName=name;myColor=AVATAR_COLORS[selectedAvatar.join];isHost=false;myRoomCode=code;
+  if(count>=10&&!existing){showToast('❌ Kamer vol (max 10)');return;}
+  myName=name;myColor=AVATAR_COLORS[selectedAvatar.join];isHost=room.hostId===myId;myRoomCode=code;
   selectedChips=room.settings.chips;selectedBlinds={sb:room.settings.sb,bb:room.settings.bb};
-  await set(ref(db,`rooms/${code}/players/${myId}`),{name:myName,color:myColor,chips:selectedChips,bet:0,totalBet:0,folded:false,allIn:false,lastAction:'',seatIndex:count,joinedAt:Date.now()});
+  if(existing){
+    await update(ref(db),{
+      [`rooms/${code}/players/${myId}/name`]:myName,
+      [`rooms/${code}/players/${myId}/color`]:myColor,
+      [`rooms/${code}/players/${myId}/connected`]:true,
+      [`rooms/${code}/players/${myId}/leftAt`]:null
+    });
+  }else{
+    await set(ref(db,`rooms/${code}/players/${myId}`),{name:myName,color:myColor,chips:selectedChips,bet:0,totalBet:0,folded:false,allIn:false,lastAction:'',seatIndex:count,connected:true,joinedAt:Date.now()});
+  }
   saveSession();
   document.getElementById('display-code').textContent=code;
-  document.getElementById('btn-start').style.display='none';
+  setRoomControls(room);
   listenRoom();
   showToast('✅ Verbonden!');
-  window.showScreen('screen-waiting');
+  if(room.status==='waiting')window.showScreen('screen-waiting');
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -602,9 +696,11 @@ function listenRoom(){
   if(roomUnsub){roomUnsub();roomUnsub=null;}
   roomRef=ref(db,`rooms/${myRoomCode}`);
   roomUnsub=onValue(roomRef,snap=>{
-    if(!snap.exists())return;
+    if(!snap.exists()){goHomeAfterRoomEnded('⚠️ Tafel bestaat niet meer');return;}
     const room=snap.val();
+    if(room.status==='closed'){goHomeAfterRoomEnded('🔒 Host heeft de tafel afgesloten');return;}
     lastSnap=room;
+    setRoomControls(room);
     if(room.status==='waiting'){renderWaiting(room);}
     else if(room.status==='playing'){
       if(!document.getElementById('screen-game').classList.contains('active')){
@@ -619,14 +715,16 @@ function listenRoom(){
 
 function renderWaiting(room){
   const pl=Object.entries(room.players||{}).map(([id,p])=>({id,...p})).sort((a,b)=>a.seatIndex-b.seatIndex);
-  document.getElementById('player-count').textContent=pl.length;
+  document.getElementById('player-count').textContent=pl.filter(p=>p.connected!==false).length;
   const ul=document.getElementById('waiting-players');
   ul.innerHTML='';
   pl.forEach(p=>{
     const row=document.createElement('div');row.className='player-row';
-    row.innerHTML=`<div class="player-avatar-sm" style="background:${p.color}">${p.name[0]}</div>
+    if(p.connected===false)row.style.opacity='.55';
+    const badge=p.id===room.hostId?'<span class="pbadge badge-host">Host</span>':(p.connected===false?'<span class="pbadge badge-offline">Offline</span>':'<span class="pbadge badge-ready">Klaar</span>');
+    row.innerHTML=`<div class="player-avatar-sm" style="background:${p.color}">${(p.name||'?')[0]}</div>
       <span class="name">${p.name}</span>
-      ${p.id===room.hostId?'<span class="pbadge badge-host">Host</span>':'<span class="pbadge badge-ready">Klaar</span>'}`;
+      ${badge}`;
     ul.appendChild(row);
   });
 }
@@ -638,13 +736,15 @@ window.startGame=async()=>{
   if(!isHost){showToast('Alleen de host kan starten');return;}
   const snap=await get(ref(db,`rooms/${myRoomCode}`));
   const room=snap.val();
-  const pl=Object.entries(room.players||{}).map(([id,p])=>({id,...p})).sort((a,b)=>a.seatIndex-b.seatIndex);
+  const all=Object.entries(room.players||{}).map(([id,p])=>({id,...p})).sort((a,b)=>a.seatIndex-b.seatIndex);
+  const pl=all.filter(p=>p.connected!==false&&p.chips>0);
+  const parked=all.filter(p=>p.connected===false||p.chips<=0);
   if(pl.length<2){showToast('⚠️ Minimaal 2 spelers nodig');return;}
-  await dealNewRound(pl,room.settings,0,1);
+  await dealNewRound(pl,room.settings,0,1,parked);
   await update(ref(db,`rooms/${myRoomCode}`),{status:'playing'});
 };
 
-async function dealNewRound(pl,settings,prevDealerSeat,roundNum){
+async function dealNewRound(pl,settings,prevDealerSeat,roundNum,parked=[]){
   const n=pl.length;
   const dealerSeat=prevDealerSeat%n,sbSeat=(dealerSeat+1)%n,bbSeat=(dealerSeat+2)%n;
   const sb=settings.sb,bb=settings.bb;
@@ -655,7 +755,10 @@ async function dealNewRound(pl,settings,prevDealerSeat,roundNum){
     let bet=0,chips=p.chips;
     if(i===sbSeat){bet=Math.min(sb,chips);chips-=bet;}
     if(i===bbSeat){bet=Math.min(bb,chips);chips-=bet;}
-    pUpdates[p.id]={name:p.name,color:p.color,chips,bet,totalBet:bet,folded:false,allIn:chips===0,lastAction:'',seatIndex:i,cards:{0:c1,1:c2}};
+    pUpdates[p.id]={name:p.name,color:p.color,chips,bet,totalBet:bet,folded:false,allIn:chips===0,lastAction:'',seatIndex:i,cards:{0:c1,1:c2},connected:p.connected!==false,joinedAt:p.joinedAt||Date.now()};
+  });
+  parked.forEach((p,i)=>{
+    pUpdates[p.id]={name:p.name,color:p.color,chips:p.chips||0,bet:0,totalBet:p.totalBet||0,folded:true,allIn:true,lastAction:'Offline',seatIndex:n+i,connected:false,joinedAt:p.joinedAt||Date.now(),leftAt:p.leftAt||Date.now()};
   });
   const toAct=[];
   for(let i=(bbSeat+1)%n;;i=(i+1)%n){toAct.push(pl[i].id);if(i===bbSeat)break;}
@@ -736,7 +839,7 @@ function renderGame(room){
     s.className='seat'+(p.folded?' folded':'')+(isActive?' active-turn':'')+(isWinner?' winner-seat':'');
     s.style.left=pos.x+'%';s.style.top=pos.y+'%';
     s.innerHTML=`<div class="seat-inner">${badge}${winBadge}
-      <div class="seat-avatar" style="background:${p.color}">${p.name[0]}</div>
+      <div class="seat-avatar" style="background:${p.color}">${(p.name||'?')[0]}</div>
       <div class="seat-name">${p.name}${p.id===myId?' 👤':''}</div>
       <div class="seat-chips">€${(p.chips||0).toFixed(2)}</div>
       ${cardsHtml}${actHtml}</div>
@@ -977,8 +1080,10 @@ window.nextRound=async()=>{
   const snap=await get(ref(db,`rooms/${myRoomCode}`));
   const room=snap.val();
   const allP=Object.entries(room.players||{}).map(([id,p])=>({id,...p})).sort((a,b)=>a.seatIndex-b.seatIndex).filter(p=>p.chips>0);
-  if(allP.length<2){showToast('Te weinig spelers met chips!');return;}
-  await dealNewRound(allP,room.settings,(room.game?.dealerSeat||0)+1,(room.game?.roundNum||1)+1);
+  const active=allP.filter(p=>p.connected!==false);
+  const parked=allP.filter(p=>p.connected===false);
+  if(active.length<2){showToast('Te weinig spelers met chips!');return;}
+  await dealNewRound(active,room.settings,(room.game?.dealerSeat||0)+1,(room.game?.roundNum||1)+1,parked);
   showToast(`🔄 Ronde ${(room.game?.roundNum||1)+1} gestart!`);
 };
 
@@ -1004,12 +1109,50 @@ function listenEmoji(){
 /* ═══════════════════════════════════════════════════════════
    VERLATEN
 ═══════════════════════════════════════════════════════════ */
+async function markCurrentPlayerAway(){
+  if(!db||!myRoomCode)return;
+  const snap=await get(ref(db,`rooms/${myRoomCode}`));
+  if(!snap.exists())return;
+  const room=snap.val();
+  if(room.status==='closed')return;
+  const me=room.players?.[myId];
+  if(!me)return;
+  const updates={
+    [`rooms/${myRoomCode}/players/${myId}/connected`]:false,
+    [`rooms/${myRoomCode}/players/${myId}/leftAt`]:Date.now()
+  };
+  if(room.status==='playing'&&room.game&&!room.game.showdown&&!me.folded){
+    updates[`rooms/${myRoomCode}/players/${myId}/folded`]=true;
+    updates[`rooms/${myRoomCode}/players/${myId}/allIn`]=true;
+    updates[`rooms/${myRoomCode}/players/${myId}/lastAction`]='Offline';
+    updates[`rooms/${myRoomCode}/game/toAct`]=toArr(room.game.toAct||[]).filter(id=>id!==myId);
+  }
+  await update(ref(db),updates);
+}
+
 window.leaveRoom=async()=>{
+  try{await markCurrentPlayerAway();}catch(e){console.warn('Verlaten mislukt:',e);}
   if(roomUnsub){roomUnsub();roomUnsub=null;}
   if(emojiUnsub){emojiUnsub();emojiUnsub=null;}
-  if(myRoomCode)await remove(ref(db,`rooms/${myRoomCode}/players/${myId}`));
+  window.showScreen('screen-home');
+  showToast('Je bent tijdelijk van tafel');
+  const code=localStorage.getItem('tvs_room');
+  if(code&&lastSnap)showResumePanel(lastSnap,code);
+};
+
+window.closeRoom=async()=>{
+  const code=myRoomCode||localStorage.getItem('tvs_room');
+  if(!code||!db){clearSession();window.showScreen('screen-home');return;}
+  const snap=await get(ref(db,`rooms/${code}`));
+  if(!snap.exists()){clearSession();window.showScreen('screen-home');return;}
+  const room=snap.val();
+  if(room.hostId!==myId){showToast('Alleen de host kan afsluiten');return;}
+  await update(ref(db,`rooms/${code}`),{status:'closed',closedAt:Date.now(),closedBy:myId});
+  if(roomUnsub){roomUnsub();roomUnsub=null;}
+  if(emojiUnsub){emojiUnsub();emojiUnsub=null;}
   clearSession();
   window.showScreen('screen-home');
+  showToast('🔒 Tafel afgesloten');
 };
 
 /* ═══════════════════════════════════════════════════════════
