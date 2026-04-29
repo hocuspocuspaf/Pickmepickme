@@ -27,7 +27,8 @@ let myRoomCode = localStorage.getItem('tvs_room')||'';
 let isHost  = localStorage.getItem('tvs_host')==='true';
 let selectedChips=10,selectedBlinds={sb:.25,bb:.50};
 let selectedAvatar={create:0,join:0},currentRaiseVal=.50;
-let roomRef=null,roomUnsub=null,emojiUnsub=null,cardsUnsub=null,lastSnap=null,myCardsCache=[],processingAction=false,pendingAction=false;
+let roomRef=null,roomUnsub=null,emojiUnsub=null,cardsUnsub=null,lastSnap=null,myCardsCache=[],processingAction=false,pendingAction=false,pendingActionTimer=null,pendingActionNonce=null;
+const PENDING_ACTION_TIMEOUT_MS=7000,HOST_WATCHDOG_MS=4000;
 
 function saveSession(){
   localStorage.setItem('tvs_name',myName);
@@ -39,8 +40,30 @@ function clearSession(){
   ['tvs_id','tvs_name','tvs_color','tvs_room','tvs_host'].forEach(k=>localStorage.removeItem(k));
   myRoomCode='';myName='';isHost=false;lastSnap=null;
   myCardsCache=[];
-  pendingAction=false;
+  setPendingAction(false);
   hideResumePanel();
+}
+
+function setPendingAction(value,nonce=null){
+  pendingAction=value;
+  pendingActionNonce=value?nonce:null;
+  if(pendingActionTimer){clearTimeout(pendingActionTimer);pendingActionTimer=null;}
+  if(value){
+    pendingActionTimer=setTimeout(()=>{
+      pendingAction=false;
+      pendingActionNonce=null;
+      pendingActionTimer=null;
+      if(lastSnap?.status==='playing')renderGame(lastSnap);
+    },PENDING_ACTION_TIMEOUT_MS);
+  }
+}
+
+function shouldClearPendingAction(room){
+  if(!pendingAction)return false;
+  if(room.actions?.[myId])return false;
+  const nonce=room.game?.actionNonce||0;
+  const toAct=toArr(room.game?.toAct||[]);
+  return pendingActionNonce==null||nonce!==pendingActionNonce||toAct[0]!==myId;
 }
 
 function hideResumePanel(){document.getElementById('resume-panel')?.classList.remove('show');}
@@ -90,6 +113,67 @@ function listenPrivateCards(){
     if(lastSnap?.status==='playing')renderGame(lastSnap);
   });
 }
+
+async function refreshRoomFromServer(){
+  if(!db||!myRoomCode)return;
+  try{
+    const snap=await get(ref(db,`rooms/${myRoomCode}`));
+    if(!snap.exists()){goHomeAfterRoomEnded('⚠️ Tafel bestaat niet meer');return;}
+    const room=snap.val();
+    if(room.status==='closed'){goHomeAfterRoomEnded('🔒 Host heeft de tafel afgesloten');return;}
+    lastSnap=room;
+    if(shouldClearPendingAction(room))setPendingAction(false);
+    setRoomControls(room);
+    if(room.status==='waiting')renderWaiting(room);
+    else if(room.status==='playing'){
+      if(isHost){
+        await processPendingActions(room);
+        await advanceStuckRoom(room);
+      }
+      renderGame(room);
+    }
+  }catch(e){
+    if(!isPermissionDenied(e))console.warn('Verse tafelstatus laden mislukt:',e);
+  }
+}
+
+async function advanceStuckRoom(room){
+  if(!isHost||!db||!myRoomCode||processingAction)return false;
+  try{
+    const game=room.game||{};
+    if(room.status!=='playing'||game.showdown||game._advancing||game.phase>=4)return false;
+    const players=room.players||{};
+    const toAct=toArr(game.toAct||[]);
+    const alive=Object.values(players).filter(p=>!p.folded);
+    const actionable=toAct.some(id=>{
+      const p=players[id];
+      return p&&!p.folded&&!p.allIn;
+    });
+    const shouldAdvance=alive.length<=1||toAct.length===0||!actionable;
+    if(!shouldAdvance)return false;
+    await update(ref(db,`rooms/${myRoomCode}/game`),{_advancing:true});
+    try{
+      if(alive.length<=1)await endRound(players,game.pot||0,game);
+      else await nextPhase(room);
+    }finally{
+      await update(ref(db,`rooms/${myRoomCode}/game`),{_advancing:false});
+    }
+    return true;
+  }catch(e){
+    console.error('Tafel vooruitzetten mislukt:',e);
+    if(isPermissionDenied(e))showToast('⚠️ Firebase Rules moeten bijgewerkt worden');
+    return false;
+  }
+}
+
+setInterval(()=>{
+  if(!myRoomCode||document.visibilityState==='hidden')return;
+  if(isHost||pendingAction)refreshRoomFromServer();
+},HOST_WATCHDOG_MS);
+document.addEventListener('visibilitychange',()=>{
+  if(document.visibilityState==='visible')refreshRoomFromServer();
+});
+window.addEventListener('focus',()=>refreshRoomFromServer());
 
 /* ═══════════════════════════════════════════════════════════
    LOBBY UI — expose to window (onclick attr werkt in modules)
@@ -448,7 +532,7 @@ function renderGame(room){
   // Mijn kaarten + info
   const me=pl[myId]||{};
   const ownCards=myCardsCache.length?myCardsCache:toArr(me.cards||[]);
-  if(!room.actions?.[myId])pendingAction=false;
+  if(shouldClearPendingAction(room))setPendingAction(false);
   const mc=document.getElementById('my-cards');mc.innerHTML='';
   ownCards.forEach(c=>mc.appendChild(makeCard(c.r,c.s,true)));
   document.getElementById('my-name').textContent=me.name||myName;
@@ -506,27 +590,13 @@ function renderGame(room){
     setTimeout(async()=>{
       const snap2=await get(ref(db,`rooms/${myRoomCode}`));
       if(!snap2.exists())return;
-      const r2=snap2.val(),g2=r2.game||{};
-      const alive2=Object.values(r2.players||{}).filter(p=>!p.folded);
-      if(alive2.length<=1&&g2.phase<4&&!g2.showdown){
-        await update(ref(db,`rooms/${myRoomCode}/game`),{_advancing:true});
-        await endRound(r2.players,g2.pot,g2);
-        await update(ref(db,`rooms/${myRoomCode}/game`),{_advancing:false});
-      }
+      await advanceStuckRoom(snap2.val());
     },700);
   }else if(isHost && toAct.length===0 && game.phase<4 && !game.showdown && !game._advancing){
     setTimeout(async()=>{
       const snap2=await get(ref(db,`rooms/${myRoomCode}`));
       if(!snap2.exists())return;
-      const r2=snap2.val(),g2=r2.game||{};
-      const ta2=toArr(g2.toAct||[]);
-      if(ta2.length===0&&g2.phase<4&&!g2.showdown){
-        await update(ref(db,`rooms/${myRoomCode}/game`),{_advancing:true});
-        const alive2=Object.values(r2.players||{}).filter(p=>!p.folded);
-        if(alive2.length<=1){await endRound(r2.players,g2.pot,g2);}
-        else await nextPhase(r2);
-        await update(ref(db,`rooms/${myRoomCode}/game`),{_advancing:false});
-      }
+      await advanceStuckRoom(snap2.val());
     },1200);
   }
 }
@@ -538,11 +608,12 @@ async function submitAction(type,amount=null){
   if(!lastSnap||pendingAction||lastSnap.actions?.[myId])return;
   const toAct=toArr(lastSnap.game?.toAct||[]);
   if(toAct[0]!==myId)return;
-  pendingAction=true;
+  const nonce=lastSnap.game?.actionNonce||0;
+  setPendingAction(true,nonce);
   try{
-    await set(ref(db,`rooms/${myRoomCode}/actions/${myId}`),{type,amount,ts:Date.now(),nonce:lastSnap.game?.actionNonce||0});
+    await set(ref(db,`rooms/${myRoomCode}/actions/${myId}`),{type,amount,ts:Date.now(),nonce});
   }catch(e){
-    pendingAction=false;
+    setPendingAction(false);
     throw e;
   }
   const lbl={fold:'🃏 Gefold',check:'✋ Check',call:'📞 Call',allin:'💥 ALL-IN!',raise:'💰 Raise aangevraagd'};
@@ -677,12 +748,7 @@ async function nextPhase(room){
     setTimeout(async()=>{
       const snap3=await get(ref(db,`rooms/${myRoomCode}`));
       if(!snap3.exists())return;
-      const r3=snap3.val(),g3=r3.game||{};
-      if(toArr(g3.toAct||[]).length===0&&g3.phase<4&&!g3.showdown){
-        const alive3=Object.values(r3.players||{}).filter(p=>!p.folded);
-        if(alive3.length<=1)await endRound(r3.players,g3.pot,g3);
-        else await nextPhase(r3);
-      }
+      await advanceStuckRoom(snap3.val());
     },900);
   }
 }
@@ -745,12 +811,18 @@ function showShowdown(allP,community,game){
 
 window.forceShowdown=async()=>{
   if(!isHost)return;
-  const snap=await get(ref(db,`rooms/${myRoomCode}`));
-  if(!snap.exists())return;
-  const room=snap.val();
-  const alive=Object.values(room.players||{}).filter(p=>!p.folded);
-  if(alive.length<=1){await endRound(room.players,room.game?.pot||0,room.game||{});}
-  else await runShowdown(room);
+  try{
+    const snap=await get(ref(db,`rooms/${myRoomCode}`));
+    if(!snap.exists())return;
+    const room=snap.val();
+    const alive=Object.values(room.players||{}).filter(p=>!p.folded);
+    if(alive.length<=1){await endRound(room.players,room.game?.pot||0,room.game||{});}
+    else await runShowdown(room);
+  }catch(e){
+    console.error('Showdown forceren mislukt:',e);
+    if(isPermissionDenied(e))showToast('⚠️ Firebase Rules moeten bijgewerkt worden');
+    else showToast('⚠️ Toon winnaar lukt niet');
+  }
 };
 window.nextRound=async()=>{
   if(!isHost){showToast('Alleen de host start de volgende ronde');return;}
@@ -815,7 +887,7 @@ window.leaveRoom=async()=>{
   if(roomUnsub){roomUnsub();roomUnsub=null;}
   if(emojiUnsub){emojiUnsub();emojiUnsub=null;}
   if(cardsUnsub){cardsUnsub();cardsUnsub=null;}
-  pendingAction=false;
+  setPendingAction(false);
   window.showScreen('screen-home');
   showToast('Je bent tijdelijk van tafel');
   const code=localStorage.getItem('tvs_room');
