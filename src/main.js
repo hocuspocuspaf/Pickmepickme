@@ -27,7 +27,7 @@ let myRoomCode = localStorage.getItem('tvs_room')||'';
 let isHost  = localStorage.getItem('tvs_host')==='true';
 let selectedChips=10,selectedBlinds={sb:.25,bb:.50};
 let selectedAvatar={create:0,join:0},currentRaiseVal=.50;
-let roomRef=null,roomUnsub=null,emojiUnsub=null,cardsUnsub=null,lastSnap=null,myCardsCache=[],processingAction=false,pendingAction=false,pendingActionTimer=null,pendingActionNonce=null;
+let roomRef=null,roomUnsub=null,emojiUnsub=null,cardsUnsub=null,lastSnap=null,myCardsCache=[],processingAction=false,pendingAction=false,pendingActionTimer=null,pendingActionNonce=null,selfConnectInFlight=false;
 const PENDING_ACTION_TIMEOUT_MS=7000,HOST_WATCHDOG_MS=4000;
 
 function saveSession(){
@@ -105,6 +105,28 @@ async function registerDisconnect(code){
   await onDisconnect(ref(db,`rooms/${code}/players/${myId}/leftAt`)).set(Date.now());
 }
 
+async function markSelfConnected(room=null){
+  if(!db||!myRoomCode||!myId||document.visibilityState==='hidden'||selfConnectInFlight)return;
+  const me=room?.players?.[myId];
+  if(room&&!me)return;
+  if(me&&me.connected!==false)return;
+  selfConnectInFlight=true;
+  try{
+    await update(ref(db),{
+      [`rooms/${myRoomCode}/players/${myId}/connected`]:true,
+      [`rooms/${myRoomCode}/players/${myId}/leftAt`]:null
+    });
+    if(me){
+      me.connected=true;
+      me.leftAt=null;
+    }
+  }catch(e){
+    if(!isPermissionDenied(e))console.warn('Eigen verbinding herstellen mislukt:',e);
+  }finally{
+    selfConnectInFlight=false;
+  }
+}
+
 function listenPrivateCards(){
   if(cardsUnsub){cardsUnsub();cardsUnsub=null;}
   if(!myRoomCode)return;
@@ -121,6 +143,7 @@ async function refreshRoomFromServer(){
     if(!snap.exists()){goHomeAfterRoomEnded('⚠️ Tafel bestaat niet meer');return;}
     const room=snap.val();
     if(room.status==='closed'){goHomeAfterRoomEnded('🔒 Host heeft de tafel afgesloten');return;}
+    await markSelfConnected(room);
     lastSnap=room;
     if(shouldClearPendingAction(room))setPendingAction(false);
     setRoomControls(room);
@@ -168,12 +191,12 @@ async function advanceStuckRoom(room){
 
 setInterval(()=>{
   if(!myRoomCode||document.visibilityState==='hidden')return;
-  if(isHost||pendingAction)refreshRoomFromServer();
+  if(roomUnsub&&(isHost||pendingAction))refreshRoomFromServer();
 },HOST_WATCHDOG_MS);
 document.addEventListener('visibilitychange',()=>{
-  if(document.visibilityState==='visible')refreshRoomFromServer();
+  if(document.visibilityState==='visible'&&roomUnsub)refreshRoomFromServer();
 });
-window.addEventListener('focus',()=>refreshRoomFromServer());
+window.addEventListener('focus',()=>{if(roomUnsub)refreshRoomFromServer();});
 
 /* ═══════════════════════════════════════════════════════════
    LOBBY UI — expose to window (onclick attr werkt in modules)
@@ -352,6 +375,7 @@ function listenRoom(){
     if(!snap.exists()){goHomeAfterRoomEnded('⚠️ Tafel bestaat niet meer');return;}
     const room=snap.val();
     if(room.status==='closed'){goHomeAfterRoomEnded('🔒 Host heeft de tafel afgesloten');return;}
+    markSelfConnected(room);
     lastSnap=room;
     setRoomControls(room);
     if(room.status==='waiting'){renderWaiting(room);}
@@ -391,6 +415,7 @@ window.startGame=async()=>{
   if(!isHost){showToast('Alleen de host kan starten');return;}
   const snap=await get(ref(db,`rooms/${myRoomCode}`));
   const room=snap.val();
+  await markSelfConnected(room);
   const all=Object.entries(room.players||{}).map(([id,p])=>({id,...p})).sort((a,b)=>a.seatIndex-b.seatIndex);
   const pl=all.filter(p=>p.connected!==false&&p.chips>0);
   const parked=all.filter(p=>p.connected===false||p.chips<=0);
@@ -829,6 +854,7 @@ window.nextRound=async()=>{
   showdownShown=false;
   const snap=await get(ref(db,`rooms/${myRoomCode}`));
   const room=snap.val();
+  await markSelfConnected(room);
   const allP=Object.entries(room.players||{}).map(([id,p])=>({id,...p}));
   const active=allP.filter(p=>p.connected!==false&&p.chips>0);
   const parked=allP.filter(p=>p.connected===false||p.chips<=0);
