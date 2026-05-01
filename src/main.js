@@ -1,5 +1,5 @@
 import{initFirebase,ref,set,get,update,onValue,onDisconnect}from'./firebase.js';
-import{AVATAR_COLORS,SEAT_POS}from'./constants.js';
+import{AVATAR_COLORS}from'./constants.js';
 import{cmp,evalHand,mkDeck,shuffle}from'./poker.js';
 import{actionOrder,actionOrderFromSeat,isPermissionDenied,nextSeat,nextSeatIn,toArr}from'./utils.js';
 import{hideOverlay,makeCard,sdCardHtml,showToast,spawnConfetti}from'./ui-elements.js';
@@ -548,6 +548,17 @@ function showdownPayouts(players,cands){
   return payouts;
 }
 
+function visualSeatPos(index,total){
+  if(total<=1||index===0)return{x:50,y:88};
+  const others=total-1;
+  const angle=others===1?270:180+((index-1)*180)/(others-1);
+  const rad=angle*Math.PI/180;
+  return{
+    x:Math.round((50+43*Math.cos(rad))*100)/100,
+    y:Math.round((50+38*Math.sin(rad))*100)/100
+  };
+}
+
 function esc(v){
   return String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
 }
@@ -645,11 +656,12 @@ function renderGame(room){
   }
   document.getElementById('game-phase').textContent=PHASES[game.phase]||'Pre-Flop';
 
-  // Seats — visuele positie bepaald door echte seatIndex (vast op de tafel).
+  // Seats — order blijft op echte seatIndex, maar de visuele afstand schaalt mee met aantal spelers.
   const con=document.getElementById('seats-container');con.innerHTML='';
+  const visualPlayers=[...allP].sort((a,b)=>((a.seatIndex-mySeatIdx+10)%10)-((b.seatIndex-mySeatIdx+10)%10));
+  const visualIndexById=new Map(visualPlayers.map((p,i)=>[p.id,i]));
   allP.forEach(p=>{
-    const vis=(p.seatIndex-mySeatIdx+10)%10;
-    const pos=SEAT_POS[Math.min(vis,9)];
+    const pos=visualSeatPos(visualIndexById.get(p.id)??0,visualPlayers.length);
     const isActive=toAct[0]===p.id;
     const isWinner=winnerIds.includes(p.id);
     let badge='';
