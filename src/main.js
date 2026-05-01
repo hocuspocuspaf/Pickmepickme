@@ -686,10 +686,15 @@ function renderGame(room){
     s.className='seat'+(p.folded?' folded':'')+(isActive?' active-turn':'')+(isWinner?' winner-seat':'');
     s.style.left=pos.x+'%';s.style.top=pos.y+'%';
     s.innerHTML=`<div class="seat-inner">${badge}${winBadge}
-      <div class="seat-avatar" style="background:${p.color}">${(p.name||'?')[0]}</div>
-      <div class="seat-name">${p.name}${p.id===myId?' 👤':''}</div>
-      <div class="seat-chips">€${(p.chips||0).toFixed(2)}</div>
-      ${cardsHtml}${actHtml}</div>
+      ${cardsHtml}
+      <div class="seat-label">
+        <div class="seat-avatar" style="background:${p.color}">${(p.name||'?')[0]}</div>
+        <div class="seat-meta">
+          <div class="seat-name">${p.name}${p.id===myId?' 👤':''}</div>
+          <div class="seat-chips">€${(p.chips||0).toFixed(2)}</div>
+        </div>
+      </div>
+      ${actHtml}</div>
       ${p.bet>0?`<div class="seat-bet">€${(p.bet||0).toFixed(2)}</div>`:''}`;
     con.appendChild(s);
   });
