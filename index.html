@@ -125,9 +125,13 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
 .card-rank{font-size:clamp(1.78rem,3.75vw,2.62rem);line-height:.86;letter-spacing:0}
 .card-rank.wide{font-size:clamp(1.36rem,3vw,2rem)}
 .card-suit{font-size:clamp(1.52rem,3.15vw,2.25rem);line-height:.95;margin-top:5px}
+.community-cards .card{width:clamp(43px,5.9vw,61px)}
+.community-cards .card-rank{font-size:clamp(1.42rem,3vw,2.1rem)}
+.community-cards .card-rank.wide{font-size:clamp(1.1rem,2.4vw,1.6rem)}
+.community-cards .card-suit{font-size:clamp(1.22rem,2.5vw,1.8rem);margin-top:4px}
 @media(max-width:600px){
   .card{width:clamp(42px,16.5vw,58px);padding:4px;border-radius:6px}.card-rank{font-size:1.56rem}.card-rank.wide{font-size:1.16rem}.card-suit{font-size:1.34rem;margin-top:3px}
-  .community-cards{gap:4px}
+  .community-cards{gap:4px}.community-cards .card{width:clamp(34px,13.2vw,46px)}.community-cards .card-rank{font-size:1.25rem}.community-cards .card-rank.wide{font-size:.92rem}.community-cards .card-suit{font-size:1.08rem;margin-top:2px}
 }
 
 /* SEATS */
