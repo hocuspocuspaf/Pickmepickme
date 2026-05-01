@@ -156,8 +156,8 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
 .action-check{background:rgba(50,90,200,.2);color:#6688ff}
 .action-all-in{background:rgba(220,50,50,.2);color:#ff5555}
 .seat-bet{font-size:.72rem;color:var(--gold-light);background:rgba(18,32,23,.84);border:1px solid rgba(244,220,134,.38);padding:2px 7px;border-radius:10px;margin-top:3px;font-weight:800}
-.emoji-float{position:absolute;top:-28px;font-size:1.3rem;animation:floatUp 2.2s ease forwards;pointer-events:none;z-index:20}
-@keyframes floatUp{0%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-38px)}}
+.emoji-float{position:absolute;top:-34px;left:50%;font-size:1.55rem;animation:floatUp 2.2s ease forwards;pointer-events:none;z-index:30;text-shadow:0 3px 8px rgba(0,0,0,.55)}
+@keyframes floatUp{0%{opacity:1;transform:translate(-50%,0) scale(1)}100%{opacity:0;transform:translate(-50%,-42px) scale(1.16)}}
 @media(max-width:600px){
   .seat-inner{min-width:84px}.seat-label{min-width:84px;max-width:106px;padding:6px 7px;gap:6px}.seat-avatar{width:24px;height:24px;font-size:.7rem}
   .seat-name{font-size:.7rem;max-width:62px}.seat-chips{font-size:.68rem}.seat-card-sm{width:24px;height:34px}.phase-badge{display:none}

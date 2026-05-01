@@ -1036,7 +1036,13 @@ window.nextRound=async()=>{
    EMOJI (realtime voor alle spelers)
 ═══════════════════════════════════════════════════════════ */
 window.sendEmoji=async emoji=>{
-  await set(ref(db,`rooms/${myRoomCode}/emoji`),{playerId:myId,emoji,ts:Date.now()});
+  if(!db||!myRoomCode||!myId)return;
+  try{
+    await set(ref(db,`rooms/${myRoomCode}/emoji`),{playerId:myId,emoji,ts:Date.now()});
+  }catch(e){
+    console.warn('Emoji versturen mislukt:',e);
+    showToast('⚠️ Emoji kon niet verstuurd worden');
+  }
 };
 function listenEmoji(){
   if(emojiUnsub)emojiUnsub();
@@ -1044,7 +1050,7 @@ function listenEmoji(){
     if(!snap.exists())return;
     const{playerId,emoji,ts}=snap.val();
     if(Date.now()-ts>5000)return; // te oud negeren
-    const seat=document.getElementById(`seat-${playerId}`)?.querySelector('.seat-inner');
+    const seat=document.getElementById(`seat-${playerId}`);
     if(!seat)return;
     const fl=document.createElement('div');fl.className='emoji-float';fl.textContent=emoji;
     seat.appendChild(fl);setTimeout(()=>fl.remove(),2300);
