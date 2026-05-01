@@ -170,6 +170,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
 .my-cards-row{display:flex;align-items:center;gap:12px;margin-bottom:.7rem}
 .my-cards{display:flex;gap:7px}
 .my-cards .card{width:clamp(58px,9vw,82px)}
+@media(max-width:600px){
+  .my-cards .card{width:52px}
+  .my-cards .card-rank{font-size:1.72rem}
+  .my-cards .card-rank.wide{font-size:1.28rem}
+  .my-cards .card-suit{font-size:1.48rem;margin-top:3px}
+}
 .my-info{flex:1}
 .my-name{font-weight:700;font-size:.92rem}
 .my-chips{font-size:.82rem;color:var(--gold);font-weight:600}
