@@ -122,14 +122,12 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
 .card.face-down{background:linear-gradient(145deg,#1c3d6e 0%,#0f2040 100%);border:1px solid rgba(201,168,76,.15)}
 .card.face-down::after{content:'';position:absolute;inset:4px;border-radius:3px;border:1px solid rgba(201,168,76,.18);background:repeating-linear-gradient(45deg,transparent,transparent 4px,rgba(201,168,76,.05) 4px,rgba(201,168,76,.05) 5px)}
 .card-center{display:flex;flex-direction:column;align-items:center;justify-content:center;max-width:100%;transform:translateY(2px)}
-.card-rank{font-size:clamp(1.55rem,3.3vw,2.25rem);line-height:.86;letter-spacing:0}
-.card-rank.wide{font-size:clamp(1.2rem,2.65vw,1.78rem)}
-.card-suit{font-size:clamp(1.32rem,2.75vw,1.95rem);line-height:.95;margin-top:4px}
-.card-corner{position:absolute;top:5px;left:6px;font-size:clamp(.56rem,1.15vw,.8rem);line-height:.95;display:flex;flex-direction:column;align-items:center;font-weight:900}
-.card-corner-bot{display:none}
+.card-rank{font-size:clamp(1.78rem,3.75vw,2.62rem);line-height:.86;letter-spacing:0}
+.card-rank.wide{font-size:clamp(1.36rem,3vw,2rem)}
+.card-suit{font-size:clamp(1.52rem,3.15vw,2.25rem);line-height:.95;margin-top:5px}
 @media(max-width:600px){
-  .card{width:clamp(42px,16.5vw,58px);padding:4px;border-radius:6px}.card-rank{font-size:1.4rem}.card-rank.wide{font-size:1.05rem}.card-suit{font-size:1.22rem;margin-top:2px}
-  .card-corner{top:4px;left:5px;font-size:.5rem}.community-cards{gap:4px}
+  .card{width:clamp(42px,16.5vw,58px);padding:4px;border-radius:6px}.card-rank{font-size:1.56rem}.card-rank.wide{font-size:1.16rem}.card-suit{font-size:1.34rem;margin-top:3px}
+  .community-cards{gap:4px}
 }
 
 /* SEATS */

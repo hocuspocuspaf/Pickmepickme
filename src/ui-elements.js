@@ -18,9 +18,7 @@ export function makeCard(rank,suit,faceUp){
   if(faceUp&&rank&&suit){
     const s=SUIT_SYMS[suit];
     const wide=String(rank).length>1?' wide':'';
-    c.innerHTML=`<div class="card-corner"><span>${rank}</span><span>${s}</span></div>
-      <div class="card-center"><div class="card-rank${wide}">${rank}</div><div class="card-suit">${s}</div></div>
-      <div class="card-corner-bot"><span>${rank}</span><span>${s}</span></div>`;
+    c.innerHTML=`<div class="card-center"><div class="card-rank${wide}">${rank}</div><div class="card-suit">${s}</div></div>`;
   }
   return c;
 }
