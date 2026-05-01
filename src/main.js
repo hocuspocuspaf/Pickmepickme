@@ -182,6 +182,7 @@ async function advanceStuckRoom(room){
     await update(ref(db,`rooms/${myRoomCode}/game`),{_advancing:true});
     try{
       if(alive.length<=1)await endRound(players,game.pot||0,game);
+      else if(bettingSettledByAllIn(players,game.currentBet||0))await runShowdown(room);
       else await nextPhase(room);
     }finally{
       await update(ref(db,`rooms/${myRoomCode}/game`),{_advancing:false});
@@ -497,6 +498,54 @@ function minRaiseTo(game,settings=selectedBlinds){
   const bb=settings?.bb||selectedBlinds.bb||0.5;
   const target=currentBet>0?Math.max(currentBet*2,currentBet+bb):bb;
   return Math.round(target*100)/100;
+}
+
+function cents(v){
+  return Math.round((Number(v)||0)*100);
+}
+
+function fromCents(v){
+  return Math.round(v)/100;
+}
+
+function bettingSettledByAllIn(players,currentBet){
+  const alive=Object.values(players||{}).filter(p=>!p.folded);
+  if(alive.length<=1)return false;
+  const canStillBet=alive.filter(p=>!p.allIn);
+  if(canStillBet.length>1)return false;
+  return alive.every(p=>p.allIn||cents(p.bet)>=cents(currentBet));
+}
+
+function splitCents(payouts,winners,amount){
+  if(!winners.length||amount<=0)return;
+  const ordered=[...winners].sort((a,b)=>(a.p.seatIndex??0)-(b.p.seatIndex??0));
+  const share=Math.floor(amount/ordered.length);
+  let rest=amount%ordered.length;
+  ordered.forEach(w=>{
+    payouts[w.id]=(payouts[w.id]||0)+share+(rest>0?1:0);
+    if(rest>0)rest--;
+  });
+}
+
+function showdownPayouts(players,cands){
+  const evals=new Map(cands.map(c=>[c.id,c]));
+  const entries=Object.entries(players||{})
+    .map(([id,p])=>({id,p,bet:cents(p.totalBet)}))
+    .filter(x=>x.bet>0);
+  const levels=[...new Set(entries.map(x=>x.bet))].sort((a,b)=>a-b);
+  const payouts={};
+  let prev=0;
+  levels.forEach(level=>{
+    const contributors=entries.filter(x=>x.bet>=level);
+    const amount=(level-prev)*contributors.length;
+    prev=level;
+    const eligible=contributors.filter(x=>!x.p.folded&&evals.has(x.id)).map(x=>evals.get(x.id));
+    if(!eligible.length)return;
+    let best=null;
+    eligible.forEach(c=>{if(!best||cmp(c.ev.value,best)>0)best=c.ev.value;});
+    splitCents(payouts,eligible.filter(c=>cmp(c.ev.value,best)===0),amount);
+  });
+  return payouts;
 }
 
 function esc(v){
@@ -823,6 +872,9 @@ async function applyPlayerAction(playerId,actionReq,room){
 
   const alive=Object.values(updatedPlayers).filter(p=>!p.folded);
   if(alive.length<=1)await endRound(updatedPlayers,pot,game);
+  else if(bettingSettledByAllIn(updatedPlayers,curBet)){
+    await runShowdown({...room,players:updatedPlayers,game:{...game,pot,currentBet:curBet,toAct:[]}});
+  }
   else if(newToAct.length===0)await nextPhase({...room,players:updatedPlayers,game:{...game,pot,currentBet:curBet,toAct:newToAct}});
 }
 
@@ -831,6 +883,7 @@ async function applyPlayerAction(playerId,actionReq,room){
 ═══════════════════════════════════════════════════════════ */
 async function nextPhase(room){
   const game=room.game,players=room.players;
+  if(bettingSettledByAllIn(players,game.currentBet||0)){await runShowdown(room);return;}
   const nextPh=(game.phase||0)+1;
   if(nextPh>=4){await runShowdown(room);return;}
   const deckSnap=await get(ref(db,`roomSecrets/${myRoomCode}/deck`));
@@ -889,6 +942,13 @@ async function endRound(players,pot,game){
 async function runShowdown(room){
   const game=room.game,players=room.players;
   const comm=toArr(game.community||[]);
+  let deck=null;
+  if(comm.length<5){
+    const deckSnap=await get(ref(db,`roomSecrets/${myRoomCode}/deck`));
+    deck=toArr(deckSnap.val()||game.deck||[]);
+    while(comm.length<5&&deck.length)comm.push(deck.pop());
+    await set(ref(db,`roomSecrets/${myRoomCode}/deck`),deck);
+  }
   const cardsSnap=await get(ref(db,`roomSecrets/${myRoomCode}/cards`));
   const privateCards=cardsSnap.val()||{};
   const showCards={};
@@ -898,17 +958,19 @@ async function runShowdown(room){
     showCards[id]=cardsObj;
     return{id,p,ev:evalHand([...cards,...comm])};
   });
-  let bestV=null;cands.forEach(c=>{if(!bestV||cmp(c.ev.value,bestV)>0)bestV=c.ev.value;});
-  const winners=cands.filter(c=>cmp(c.ev.value,bestV)===0);
-  const share=Math.round(game.pot/winners.length*100)/100;
+  const payouts=showdownPayouts(players,cands);
   const pUp={};
   Object.entries(players).forEach(([id,p])=>{const{cards,...clean}=p;pUp[id]={...clean};});
-  winners.forEach(w=>{pUp[w.id].chips=Math.round((pUp[w.id].chips+share)*100)/100;});
+  Object.entries(payouts).forEach(([id,amount])=>{
+    if(pUp[id])pUp[id].chips=Math.round((pUp[id].chips+fromCents(amount))*100)/100;
+  });
   await update(ref(db,`rooms/${myRoomCode}`),{
     players:pUp,
     actions:null,
     'game/pot':0,'game/phase':4,'game/showdown':true,
-    'game/winnerIds':winners.map(w=>w.id),
+    'game/toAct':[],
+    'game/community':comm,
+    'game/winnerIds':Object.entries(payouts).filter(([,amount])=>amount>0).map(([id])=>id),
     'game/showCards':showCards
   });
 }

@@ -22,6 +22,54 @@ function minRaiseTo(game){
   return Math.round(target*100)/100;
 }
 
+function cents(v){
+  return Math.round((Number(v)||0)*100);
+}
+
+function fromCents(v){
+  return Math.round(v)/100;
+}
+
+function bettingSettledByAllIn(players,currentBet){
+  const alive=Object.values(players||{}).filter(p=>!p.folded);
+  if(alive.length<=1)return false;
+  const canStillBet=alive.filter(p=>!p.allIn);
+  if(canStillBet.length>1)return false;
+  return alive.every(p=>p.allIn||cents(p.bet)>=cents(currentBet));
+}
+
+function splitCents(payouts,winners,amount){
+  if(!winners.length||amount<=0)return;
+  const ordered=[...winners].sort((a,b)=>(a.p.seatIndex??0)-(b.p.seatIndex??0));
+  const share=Math.floor(amount/ordered.length);
+  let rest=amount%ordered.length;
+  ordered.forEach(w=>{
+    payouts[w.id]=(payouts[w.id]||0)+share+(rest>0?1:0);
+    if(rest>0)rest--;
+  });
+}
+
+function showdownPayoutsByRank(players,ranks){
+  const cands=Object.entries(ranks).map(([id,rank])=>({id,p:players[id],rank}));
+  const evals=new Map(cands.map(c=>[c.id,c]));
+  const entries=Object.entries(players||{})
+    .map(([id,p])=>({id,p,bet:cents(p.totalBet)}))
+    .filter(x=>x.bet>0);
+  const levels=[...new Set(entries.map(x=>x.bet))].sort((a,b)=>a-b);
+  const payouts={};
+  let prev=0;
+  levels.forEach(level=>{
+    const contributors=entries.filter(x=>x.bet>=level);
+    const amount=(level-prev)*contributors.length;
+    prev=level;
+    const eligible=contributors.filter(x=>!x.p.folded&&evals.has(x.id)).map(x=>evals.get(x.id));
+    if(!eligible.length)return;
+    const best=Math.max(...eligible.map(c=>c.rank));
+    splitCents(payouts,eligible.filter(c=>c.rank===best),amount);
+  });
+  return Object.fromEntries(Object.entries(payouts).map(([id,amount])=>[id,fromCents(amount)]));
+}
+
 function expectSeq(actual,expected,label){
   assert.deepEqual(actual,expected,label);
 }
@@ -187,6 +235,42 @@ function assertNoInvalidToAct(room,label){
     assert.equal(p.folded,false,`${label}: folded player in toAct ${id}`);
     assert.equal(p.allIn,false,`${label}: all-in player in toAct ${id}`);
   }
+}
+
+function runAllInClosureAndSidePotScenario(){
+  let room=dealRound([
+    makePlayer('allin',0,10),
+    makePlayer('folder',1,10),
+    makePlayer('caller',2,15)
+  ],0);
+  room={
+    ...room,
+    game:{...room.game,phase:1,currentBet:0,pot:0,toAct:['allin','folder','caller']},
+    players:Object.fromEntries(Object.entries(room.players).map(([id,p])=>[
+      id,
+      {...p,chips:id==='caller'?15:10,bet:0,totalBet:0,folded:false,allIn:false,lastAction:''}
+    ]))
+  };
+
+  room=applyAction(room,'allin',{type:'allin'});
+  assert.equal(room.players.allin.bet,10,'postflop all-in puts full stack in');
+  assert.equal(bettingSettledByAllIn(room.players,room.game.currentBet),false,'caller still has to decide');
+  room=applyAction(room,'folder',{type:'fold'});
+  assert.equal(bettingSettledByAllIn(room.players,room.game.currentBet),false,'remaining caller still owes the all-in call');
+  room=applyAction(room,'caller',{type:'call'});
+  assert.equal(room.players.caller.chips,5,'caller can have chips left after matching all-in');
+  assert.equal(bettingSettledByAllIn(room.players,room.game.currentBet),true,'after the call no further betting is possible');
+
+  const sidePlayers={
+    allin:{...makePlayer('allin',0,0),bet:10,totalBet:10,allIn:true},
+    folder:{...makePlayer('folder',1,8),bet:0,totalBet:2,folded:true},
+    caller:{...makePlayer('caller',2,4.8),bet:10.2,totalBet:10.2}
+  };
+  const shortStackWins=showdownPayoutsByRank(sidePlayers,{allin:10,caller:5});
+  assert.deepEqual(shortStackWins,{allin:22,caller:0.2},'short all-in winner gets main pot, unmatched side bet returns to caller');
+
+  const bigStackWins=showdownPayoutsByRank(sidePlayers,{allin:5,caller:10});
+  assert.deepEqual(bigStackWins,{caller:22.2},'caller with best hand can win main pot plus own side pot');
 }
 
 function runFixedScenarios(){
@@ -368,7 +452,8 @@ function runFuzzScenarios(){
 }
 
 runFixedScenarios();
+runAllInClosureAndSidePotScenario();
 runUserExampleScenario();
 runFuzzScenarios();
 
-console.log('OK: simulated user example plus dealer/blinds, preflop/postflop turn order, raise reopen, offline parking, all-in skipping.');
+console.log('OK: simulated user example plus dealer/blinds, all-in closure, side pots, preflop/postflop turn order, raise reopen, offline parking, all-in skipping.');
