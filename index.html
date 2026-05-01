@@ -176,6 +176,23 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
 .btn-raise{background:rgba(201,168,76,.14);border:1px solid rgba(201,168,76,.38);color:var(--gold)}
 .btn-allin{background:rgba(220,57,70,.14);border:1px solid rgba(220,57,70,.38);color:#ff5566}
 
+/* DEBUG PANEL */
+.debug-panel{position:absolute;top:3.2rem;left:.55rem;width:min(370px,calc(100vw - 1.1rem));max-height:48vh;overflow:auto;z-index:40;background:rgba(8,12,10,.92);border:1px solid rgba(201,168,76,.36);border-radius:8px;padding:.55rem;font-size:.68rem;color:var(--text);box-shadow:0 14px 40px rgba(0,0,0,.45);backdrop-filter:blur(8px)}
+.debug-panel.hidden{display:none}
+.debug-title{display:flex;align-items:center;justify-content:space-between;color:var(--gold);font-weight:800;letter-spacing:.08em;text-transform:uppercase;margin-bottom:.35rem}
+.debug-toggle{font-size:.65rem;padding:.12rem .38rem;border:1px solid rgba(201,168,76,.35);border-radius:6px;background:rgba(201,168,76,.11);color:var(--gold);cursor:pointer;font-family:'Rajdhani',sans-serif;font-weight:800}
+.debug-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:.25rem;margin-bottom:.4rem}
+.debug-cell{border:1px solid rgba(255,255,255,.08);border-radius:6px;padding:.24rem .3rem;background:rgba(255,255,255,.035)}
+.debug-label{display:block;color:var(--text-dim);font-size:.55rem;text-transform:uppercase;letter-spacing:.06em}
+.debug-value{font-weight:800;color:var(--text)}
+.debug-section{border-top:1px solid rgba(255,255,255,.07);padding-top:.32rem;margin-top:.32rem}
+.debug-line{display:flex;gap:.35rem;align-items:center;justify-content:space-between;border-top:1px solid rgba(255,255,255,.05);padding:.25rem 0;white-space:nowrap}
+.debug-line:first-child{border-top:none}
+.debug-name{overflow:hidden;text-overflow:ellipsis}
+.debug-pill{display:inline-block;border-radius:999px;padding:.05rem .32rem;margin-left:.15rem;background:rgba(255,255,255,.08);color:var(--text-dim);font-size:.58rem;font-weight:700}
+.debug-pill.on{background:rgba(46,204,113,.18);color:#7ee0a0}
+.debug-pill.warn{background:rgba(230,57,70,.18);color:#ff8b94}
+
 /* RAISE POPUP */
 .raise-popup{display:none;position:fixed;bottom:130px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--gold);border-radius:14px;padding:1.1rem 1.2rem;width:min(360px,92vw);z-index:100;box-shadow:0 10px 40px rgba(0,0,0,.75)}
 .raise-popup.open{display:block;animation:popUp .2s ease}
@@ -341,6 +358,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
     <div class="emoji-panel">
       <button class="emoji-btn" onclick="leaveRoom()" title="Verlaat tafel">↩</button>
       <button class="emoji-btn danger" id="btn-close-room-game" onclick="closeRoom()" title="Tafel sluiten" style="display:none">×</button>
+      <button class="emoji-btn" id="btn-debug-toggle" onclick="toggleDebugPanel()" title="Debug" style="display:none">DBG</button>
       <button class="emoji-btn" onclick="sendEmoji('😂')">😂</button>
       <button class="emoji-btn" onclick="sendEmoji('🤔')">🤔</button>
       <button class="emoji-btn" onclick="sendEmoji('😤')">😤</button>
@@ -349,6 +367,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
       <button class="emoji-btn" onclick="sendEmoji('💀')">💀</button>
     </div>
   </div>
+  <div class="debug-panel hidden" id="debug-panel"></div>
   <div class="table-area">
     <div class="table-container">
       <div class="poker-table"></div>

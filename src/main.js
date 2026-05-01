@@ -28,6 +28,7 @@ let isHost  = localStorage.getItem('tvs_host')==='true';
 let selectedChips=10,selectedBlinds={sb:.25,bb:.50};
 let selectedAvatar={create:0,join:0},currentRaiseVal=.50;
 let roomRef=null,roomUnsub=null,emojiUnsub=null,cardsUnsub=null,lastSnap=null,myCardsCache=[],processingAction=false,pendingAction=false,pendingActionTimer=null,pendingActionNonce=null,selfConnectInFlight=false;
+let debugPanelOpen=localStorage.getItem('tvs_debug_panel')==='true';
 const PENDING_ACTION_TIMEOUT_MS=7000,HOST_WATCHDOG_MS=4000;
 
 function saveSession(){
@@ -89,11 +90,15 @@ function setRoomControls(room){
   if(closeWaiting)closeWaiting.style.display=canHost?'block':'none';
   const closeGame=document.getElementById('btn-close-room-game');
   if(closeGame)closeGame.style.display=canHost?'inline-block':'none';
+  const debugToggle=document.getElementById('btn-debug-toggle');
+  if(debugToggle)debugToggle.style.display=canHost?'inline-flex':'none';
+  if(!canHost)document.getElementById('debug-panel')?.classList.add('hidden');
 }
 function goHomeAfterRoomEnded(msg){
   if(roomUnsub){roomUnsub();roomUnsub=null;}
   if(emojiUnsub){emojiUnsub();emojiUnsub=null;}
   if(cardsUnsub){cardsUnsub();cardsUnsub=null;}
+  renderDebugPanel(null);
   clearSession();
   window.showScreen('screen-home');
   showToast(msg);
@@ -487,6 +492,80 @@ function actionButtonsHtml(){
       <button class="action-btn btn-allin" id="btn-allin" onclick="doAction('allin')" disabled>ALL-IN<sub>Alles op het spel</sub></button>`;
 }
 
+function minRaiseTo(game,settings=selectedBlinds){
+  const currentBet=game?.currentBet||0;
+  const bb=settings?.bb||selectedBlinds.bb||0.5;
+  const target=currentBet>0?Math.max(currentBet*2,currentBet+bb):bb;
+  return Math.round(target*100)/100;
+}
+
+function esc(v){
+  return String(v??'').replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+
+function shortId(id){
+  return id?String(id).slice(0,6):'-';
+}
+
+function debugSeatLabel(seat,players){
+  const p=players.find(x=>x.seatIndex===seat);
+  return seat==null||seat<0?'-':`${seat}${p?` ${p.name||shortId(p.id)}`:''}`;
+}
+
+function debugPlayerLine(p,toAct,room){
+  const active=toAct[0]===p.id;
+  const action=room.actions?.[p.id]?.type||'';
+  const flags=[
+    p.connected===false?'<span class="debug-pill warn">offline</span>':'<span class="debug-pill on">online</span>',
+    p.folded?'<span class="debug-pill warn">fold</span>':'',
+    p.allIn?'<span class="debug-pill warn">all-in</span>':'',
+    active?'<span class="debug-pill on">turn</span>':'',
+    action?`<span class="debug-pill warn">${esc(action)}</span>`:''
+  ].join('');
+  return `<div class="debug-line">
+    <span class="debug-name">#${p.seatIndex} ${esc(p.name||shortId(p.id))} ${p.id===myId?'(jij)':''}</span>
+    <span>€${(p.chips||0).toFixed(2)} / bet €${(p.bet||0).toFixed(2)} ${flags}</span>
+  </div>`;
+}
+
+function renderDebugPanel(room,players=null,toAct=null){
+  const panel=document.getElementById('debug-panel');
+  if(!panel)return;
+  if(!room||!isHost){panel.classList.add('hidden');return;}
+  const game=room.game||{};
+  const allP=players||Object.entries(room.players||{}).map(([id,p])=>({id,...p})).sort((a,b)=>a.seatIndex-b.seatIndex);
+  const turn=toAct||toArr(game.toAct||[]);
+  const actions=Object.entries(room.actions||{}).map(([id,a])=>`${shortId(id)}:${a?.type||'?'}${a?.amount!=null?` ${Number(a.amount).toFixed(2)}`:''}`).join(', ')||'-';
+  const turnNames=turn.map(id=>allP.find(p=>p.id===id)?.name||shortId(id)).join(' > ')||'-';
+  panel.classList.toggle('hidden',!debugPanelOpen);
+  panel.innerHTML=`<div class="debug-title">
+      <span>DEBUG ${esc(myRoomCode)}</span>
+      <button class="debug-toggle" onclick="toggleDebugPanel()">Verberg</button>
+    </div>
+    <div class="debug-grid">
+      <div class="debug-cell"><span class="debug-label">Phase</span><span class="debug-value">${esc(PHASES[game.phase]||game.phase||0)}</span></div>
+      <div class="debug-cell"><span class="debug-label">Nonce</span><span class="debug-value">${game.actionNonce??0}</span></div>
+      <div class="debug-cell"><span class="debug-label">Pot</span><span class="debug-value">€${(game.pot||0).toFixed(2)}</span></div>
+      <div class="debug-cell"><span class="debug-label">Bet</span><span class="debug-value">€${(game.currentBet||0).toFixed(2)}</span></div>
+      <div class="debug-cell"><span class="debug-label">Dealer</span><span class="debug-value">${esc(debugSeatLabel(game.dealerSeat,allP))}</span></div>
+      <div class="debug-cell"><span class="debug-label">SB</span><span class="debug-value">${esc(debugSeatLabel(game.sbSeat,allP))}</span></div>
+      <div class="debug-cell"><span class="debug-label">BB</span><span class="debug-value">${esc(debugSeatLabel(game.bbSeat,allP))}</span></div>
+      <div class="debug-cell"><span class="debug-label">Adv</span><span class="debug-value">${game._advancing?'yes':'no'}</span></div>
+    </div>
+    <div class="debug-section"><span class="debug-label">toAct</span><div class="debug-value">${esc(turnNames)}</div></div>
+    <div class="debug-section"><span class="debug-label">Actions</span><div class="debug-value">${esc(actions)}</div></div>
+    <div class="debug-section">${allP.map(p=>debugPlayerLine(p,turn,room)).join('')}</div>
+    <div class="debug-section"><span class="debug-label">Client</span>
+      <div class="debug-value">pending=${pendingAction?'yes':'no'} processing=${processingAction?'yes':'no'} selfConnect=${selfConnectInFlight?'yes':'no'}</div>
+    </div>`;
+}
+
+window.toggleDebugPanel=()=>{
+  debugPanelOpen=!debugPanelOpen;
+  localStorage.setItem('tvs_debug_panel',debugPanelOpen?'true':'false');
+  renderDebugPanel(lastSnap);
+};
+
 function renderGame(room){
   const game=room.game||{},pl=room.players||{};
   const allP=Object.entries(pl).map(([id,p])=>({id,...p})).sort((a,b)=>a.seatIndex-b.seatIndex);
@@ -572,6 +651,7 @@ function renderGame(room){
   const stuck=isHost&&toAct.length===0&&(game.phase||0)<4&&!game.showdown;
   const fbtn=document.getElementById('btn-force');
   if(fbtn)fbtn.style.display=stuck?'inline-block':'none';
+  renderDebugPanel(room,allP,toAct);
 
   // Action panel tijdens showdown: vervang knoppen door volgende ronde UI
   const abPanel=document.querySelector('.action-buttons');
@@ -689,6 +769,7 @@ async function applyPlayerAction(playerId,actionReq,room){
   if(toAct[0]!==playerId)return;
   const action=actionReq.type;
   const toCall=Math.max(0,(game.currentBet||0)-(me.bet||0));
+  const minRaiseTarget=minRaiseTo(game,room.settings);
   let nm={...me},pot=game.pot||0,curBet=game.currentBet||0,needReopen=false;
   delete nm.cards;
   let newToAct=toAct.slice(1);
@@ -703,12 +784,16 @@ async function applyPlayerAction(playerId,actionReq,room){
     else{const a=Math.min(toCall,nm.chips);nm.chips-=a;nm.bet+=a;nm.totalBet+=a;pot+=a;nm.lastAction=nm.chips===0?'All-In':'Call';if(nm.chips===0)nm.allIn=true;}
   }else if(action==='allin'){
     const a=nm.chips;nm.chips=0;nm.bet+=a;nm.totalBet+=a;pot+=a;
-    if(nm.bet>curBet){curBet=nm.bet;needReopen=true;}
+    if(nm.bet>curBet){
+      curBet=nm.bet;
+      needReopen=nm.bet>=minRaiseTarget;
+    }
     nm.allIn=true;nm.lastAction='All-In';
   }else if(action==='raise'){
-    const ca=Math.min(toCall,nm.chips);nm.chips-=ca;nm.bet+=ca;nm.totalBet+=ca;pot+=ca;
-    const requested=Math.max(0,parseFloat(actionReq.amount)||0);
-    const ra=Math.min(requested,nm.chips);nm.chips-=ra;nm.bet+=ra;nm.totalBet+=ra;pot+=ra;
+    const targetBet=Math.max(0,Math.round((parseFloat(actionReq.amount)||0)*100)/100);
+    if(targetBet<minRaiseTarget){await set(ref(db,`rooms/${myRoomCode}/actions/${playerId}`),null);return;}
+    const add=Math.min(Math.max(0,targetBet-nm.bet),nm.chips);
+    nm.chips-=add;nm.bet+=add;nm.totalBet+=add;pot+=add;
     if(nm.bet>curBet){curBet=nm.bet;needReopen=true;}
     nm.lastAction=nm.chips===0?'All-In':'Raise';if(nm.chips===0)nm.allIn=true;
   }else{
@@ -913,6 +998,7 @@ window.leaveRoom=async()=>{
   if(roomUnsub){roomUnsub();roomUnsub=null;}
   if(emojiUnsub){emojiUnsub();emojiUnsub=null;}
   if(cardsUnsub){cardsUnsub();cardsUnsub=null;}
+  renderDebugPanel(null);
   setPendingAction(false);
   window.showScreen('screen-home');
   showToast('Je bent tijdelijk van tafel');
@@ -936,6 +1022,7 @@ window.closeRoom=async()=>{
   if(roomUnsub){roomUnsub();roomUnsub=null;}
   if(emojiUnsub){emojiUnsub();emojiUnsub=null;}
   if(cardsUnsub){cardsUnsub();cardsUnsub=null;}
+  renderDebugPanel(null);
   clearSession();
   window.showScreen('screen-home');
   showToast('🔒 Tafel afgesloten');
@@ -947,10 +1034,9 @@ window.closeRoom=async()=>{
 window.openRaise=()=>{
   if(!lastSnap)return;
   const me=lastSnap.players?.[myId]||{},game=lastSnap.game||{};
-  const toCall=Math.max(0,(game.currentBet||0)-(me.bet||0));
-  const min=Math.max(selectedBlinds.bb,(game.currentBet||0)+selectedBlinds.bb-toCall);
-  const max=(me.chips||0)-toCall;
-  if(max<=0){doAction('allin');return;}
+  const min=minRaiseTo(game,lastSnap.settings);
+  const max=(me.bet||0)+(me.chips||0);
+  if(max<min){doAction('allin');return;}
   const sl=document.getElementById('raise-slider');
   sl.min=min.toFixed(2);sl.max=max.toFixed(2);sl.step=(selectedBlinds.bb/2).toFixed(2);
   updateRaise(Math.min(min,max));
@@ -959,12 +1045,15 @@ window.openRaise=()=>{
 window.closeRaise=()=>document.getElementById('raise-popup').classList.remove('open');
 window.updateRaise=val=>{
   currentRaiseVal=Math.round(parseFloat(val)*100)/100;
-  document.getElementById('raise-display').textContent='€'+currentRaiseVal.toFixed(2);
+  document.getElementById('raise-display').textContent='NAAR €'+currentRaiseVal.toFixed(2);
   document.getElementById('raise-slider').value=val;
 };
 window.setRaisePct=pct=>{
-  const pot=lastSnap?.game?.pot||0,me=lastSnap?.players?.[myId]||{};
-  updateRaise(Math.min(Math.round(pot*pct*100)/100,me.chips||0));
+  const pot=lastSnap?.game?.pot||0,me=lastSnap?.players?.[myId]||{},game=lastSnap?.game||{};
+  const currentBet=game.currentBet||0;
+  const min=minRaiseTo(game,lastSnap?.settings);
+  const max=(me.bet||0)+(me.chips||0);
+  updateRaise(Math.min(max,Math.max(min,currentBet+Math.round(pot*pct*100)/100)));
 };
 
 window.showToast=showToast;
