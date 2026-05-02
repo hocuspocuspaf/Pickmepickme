@@ -99,7 +99,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
 .emoji-btn.danger:hover{border-color:var(--red);color:var(--red)}
 
 /* TABLE */
-.table-area{flex:1;position:relative;display:flex;align-items:center;justify-content:center;padding:.5rem 1rem;overflow:hidden}
+.table-area{flex:1;min-height:0;position:relative;display:flex;align-items:center;justify-content:center;padding:.5rem 1rem;overflow:hidden}
 .table-container{position:relative;width:min(980px,96vw);aspect-ratio:16/9}
 @media(max-width:600px){.table-container{width:100%;aspect-ratio:4/3}}
 .poker-table{position:absolute;inset:7% 4%;border-radius:50%;
@@ -440,6 +440,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
 
 <!-- Winner overlay verwijderd – showdown direct op tafel -->
 
-<script type="module" src="./src/main.js"></script>
+<script type="module" src="./src/main.js?v=timers-layout-2"></script>
 </body>
 </html>

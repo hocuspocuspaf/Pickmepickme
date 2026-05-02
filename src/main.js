@@ -31,6 +31,21 @@ let roomRef=null,roomUnsub=null,emojiUnsub=null,cardsUnsub=null,lastSnap=null,my
 let debugPanelOpen=localStorage.getItem('tvs_debug_panel')==='true';
 const PENDING_ACTION_TIMEOUT_MS=7000,HOST_WATCHDOG_MS=4000,TURN_TIMEOUT_MS=30000,SHOWDOWN_NEXT_MS=10000;
 
+function fitTableToArea(){
+  const area=document.querySelector('.table-area');
+  const con=document.querySelector('.table-container');
+  if(!area||!con)return;
+  const isMobile=window.matchMedia('(max-width:600px)').matches;
+  const ratio=isMobile?4/3:16/9;
+  const areaW=Math.max(280,area.clientWidth-20);
+  const areaH=Math.max(210,area.clientHeight-10);
+  const maxW=isMobile?areaW:Math.min(980,areaW);
+  const fittedW=Math.max(isMobile?280:420,Math.min(maxW,areaH*ratio));
+  con.style.width=`${Math.round(fittedW)}px`;
+  con.style.aspectRatio=isMobile?'4 / 3':'16 / 9';
+}
+window.addEventListener('resize',()=>requestAnimationFrame(fitTableToArea));
+
 function saveSession(){
   localStorage.setItem('tvs_name',myName);
   localStorage.setItem('tvs_color',myColor);
@@ -717,6 +732,7 @@ window.toggleDebugPanel=()=>{
 };
 
 function renderGame(room){
+  fitTableToArea();
   const game=room.game||{},pl=room.players||{};
   const allP=Object.entries(pl).map(([id,p])=>({id,...p})).sort((a,b)=>a.seatIndex-b.seatIndex);
   const myIdx=allP.findIndex(p=>p.id===myId);
