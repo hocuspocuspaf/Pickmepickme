@@ -308,7 +308,7 @@ setInterval(()=>{
   if(roomUnsub&&(isHost||pendingAction))refreshRoomFromServer();
 },HOST_WATCHDOG_MS);
 setInterval(()=>{
-  if(!lastSnap||lastSnap.status!=='playing')return;
+  if(!roomUnsub||!lastSnap||lastSnap.status!=='playing')return;
   if(isHost)processPendingActions(lastSnap);
   if(document.visibilityState==='hidden')return;
   renderGame(lastSnap);
@@ -1182,7 +1182,12 @@ window.forceShowdown=async()=>{
 };
 async function startNextRoundFromRoom(room,isAutomatic=false){
   showdownShown=false;
-  await markSelfConnected(room);
+  if(isAutomatic){
+    const hostPlayer=room.players?.[myId];
+    if(!roomUnsub||hostPlayer?.connected===false)return false;
+  }else{
+    await markSelfConnected(room);
+  }
   const allP=Object.entries(room.players||{}).map(([id,p])=>({id,...p}));
   const active=allP.filter(p=>p.connected!==false&&p.chips>0);
   const parked=allP.filter(p=>p.connected===false||p.chips<=0);
