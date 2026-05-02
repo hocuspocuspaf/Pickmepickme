@@ -233,6 +233,21 @@ function timerBarHtml(pct){
   return `<span class="countdown-bar"><span style="width:${pct}%"></span></span>`;
 }
 
+function updateMobileTimer({label,seconds,pct}={}){
+  const el=document.getElementById('mobile-status-timer');
+  if(!el)return;
+  if(!label||seconds==null){
+    el.classList.remove('show');
+    el.innerHTML='';
+    return;
+  }
+  el.classList.add('show');
+  el.innerHTML=`<div class="mobile-status-top">
+      <span class="mobile-status-label">${label}</span>
+      <span class="mobile-status-time">${seconds}s</span>
+    </div>${timerBarHtml(pct)}`;
+}
+
 function autoTurnAction(room,playerId){
   const game=room.game||{},p=room.players?.[playerId];
   if(!p||p.folded||p.allIn)return null;
@@ -744,6 +759,7 @@ function renderGame(room){
   const showCards=game.showCards||{};
   const turnLeft=turnSecondsLeft(game);
   const nextRoundLeft=showdownSecondsLeft(game);
+  const activeP=allP.find(p=>p.id===toAct[0]);
 
   // Community cards
   const cc=document.getElementById('community-cards');cc.innerHTML='';
@@ -761,11 +777,18 @@ function renderGame(room){
     potEl.innerHTML=`<span style="color:var(--gold);font-size:.78rem">🏆 ${winP?.name||'?'} wint!</span>${handLabel?`<br><span style="font-size:.65rem;color:var(--text-dim)">${handLabel}</span>`:''}${timerHtml}`;
     potEl.style.borderColor='rgba(201,168,76,0.6)';
   } else {
-    const activeP=allP.find(p=>p.id===toAct[0]);
     const turnEnd=game.turnStartedAt?game.turnStartedAt+TURN_TIMEOUT_MS:null;
     const turnTimer=turnLeft!==null&&activeP?`<br><span class="timer-line">${activeP.name}: ${turnLeft}s</span>${timerBarHtml(countdownPct(turnEnd,TURN_TIMEOUT_MS))}`:'';
     potEl.innerHTML=`POT: €${(game.pot||0).toFixed(2)}${turnTimer}`;
     potEl.style.borderColor=turnLeft!==null?'rgba(244,220,134,.68)':'rgba(201,168,76,0.28)';
+  }
+  if(isShowdown&&nextRoundLeft!==null){
+    updateMobileTimer({label:'Nieuwe ronde',seconds:nextRoundLeft,pct:countdownPct(game.nextRoundAt,SHOWDOWN_NEXT_MS)});
+  }else if(turnLeft!==null&&activeP){
+    const turnEnd=game.turnStartedAt?game.turnStartedAt+TURN_TIMEOUT_MS:null;
+    updateMobileTimer({label:activeP.id===myId?'Jouw beurt':`${activeP.name} is aan beurt`,seconds:turnLeft,pct:countdownPct(turnEnd,TURN_TIMEOUT_MS)});
+  }else{
+    updateMobileTimer();
   }
   document.getElementById('game-phase').textContent=PHASES[game.phase]||'Pre-Flop';
 
