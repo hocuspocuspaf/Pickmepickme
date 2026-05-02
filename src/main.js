@@ -29,7 +29,7 @@ let selectedChips=10,selectedBlinds={sb:.25,bb:.50};
 let selectedAvatar={create:0,join:0},currentRaiseVal=.50;
 let roomRef=null,roomUnsub=null,emojiUnsub=null,cardsUnsub=null,lastSnap=null,myCardsCache=[],processingAction=false,pendingAction=false,pendingActionTimer=null,pendingActionNonce=null,selfConnectInFlight=false;
 let debugPanelOpen=localStorage.getItem('tvs_debug_panel')==='true';
-const PENDING_ACTION_TIMEOUT_MS=7000,HOST_WATCHDOG_MS=4000;
+const PENDING_ACTION_TIMEOUT_MS=7000,HOST_WATCHDOG_MS=4000,TURN_TIMEOUT_MS=30000,SHOWDOWN_NEXT_MS=10000;
 
 function saveSession(){
   localStorage.setItem('tvs_name',myName);
@@ -195,10 +195,60 @@ async function advanceStuckRoom(room){
   }
 }
 
+function secondsUntil(ts){
+  if(!ts)return null;
+  return Math.max(0,Math.ceil((ts-Date.now())/1000));
+}
+
+function turnSecondsLeft(game){
+  if(!game?.turnStartedAt)return null;
+  return secondsUntil(game.turnStartedAt+TURN_TIMEOUT_MS);
+}
+
+function showdownSecondsLeft(game){
+  return secondsUntil(game?.nextRoundAt);
+}
+
+function autoTurnAction(room,playerId){
+  const game=room.game||{},p=room.players?.[playerId];
+  if(!p||p.folded||p.allIn)return null;
+  const toCall=Math.max(0,(game.currentBet||0)-(p.bet||0));
+  return{type:toCall<=0?'check':'fold',ts:Date.now(),auto:true,timeout:true};
+}
+
+async function processShowdownTimer(room){
+  const game=room.game||{};
+  if(!isHost||!game.showdown||!game.nextRoundAt||game._startingNextRound)return false;
+  if(Date.now()<game.nextRoundAt)return false;
+  processingAction=true;
+  try{
+    await update(ref(db,`rooms/${myRoomCode}/game`),{_startingNextRound:true});
+    const snap=await get(ref(db,`rooms/${myRoomCode}`));
+    if(!snap.exists())return false;
+    const started=await startNextRoundFromRoom(snap.val(),true);
+    if(!started){
+      await update(ref(db,`rooms/${myRoomCode}/game`),{_startingNextRound:false,nextRoundAt:null});
+    }
+    return started;
+  }catch(e){
+    console.error('Automatische nieuwe ronde mislukt:',e);
+    if(isPermissionDenied(e))showToast('⚠️ Firebase Rules moeten bijgewerkt worden');
+    try{await update(ref(db,`rooms/${myRoomCode}/game`),{_startingNextRound:false});}catch(_){}
+    return false;
+  }finally{
+    processingAction=false;
+  }
+}
+
 setInterval(()=>{
   if(!myRoomCode||document.visibilityState==='hidden')return;
   if(roomUnsub&&(isHost||pendingAction))refreshRoomFromServer();
 },HOST_WATCHDOG_MS);
+setInterval(()=>{
+  if(!lastSnap||lastSnap.status!=='playing'||document.visibilityState==='hidden')return;
+  if(isHost)processPendingActions(lastSnap);
+  renderGame(lastSnap);
+},1000);
 document.addEventListener('visibilitychange',()=>{
   if(document.visibilityState==='visible'&&roomUnsub)refreshRoomFromServer();
 });
@@ -341,7 +391,7 @@ window.joinRoom=async()=>{
   const room=snap.val();
   if(room.status==='closed'){showToast('🔒 Deze tafel is afgesloten');return;}
   const existing=room.players?.[myId];
-  if(room.status==='playing'&&!existing){showToast('❌ Spel is al bezig');return;}
+  const lateJoin=room.status==='playing'&&!existing;
   const count=Object.keys(room.players||{}).length;
   if(count>=10&&!existing){showToast('❌ Kamer vol (max 10)');return;}
   myName=name;myColor=AVATAR_COLORS[selectedAvatar.join];isHost=room.hostId===myId;myRoomCode=code;
@@ -361,7 +411,12 @@ window.joinRoom=async()=>{
     let freeSeat=0;
     while(usedSeats.has(freeSeat)&&freeSeat<10)freeSeat++;
     if(freeSeat>=10){showToast('❌ Kamer vol (max 10)');return;}
-    await set(ref(db,`rooms/${code}/players/${myId}`),{name:myName,color:myColor,chips:selectedChips,bet:0,totalBet:0,folded:false,allIn:false,lastAction:'',seatIndex:freeSeat,connected:true,joinedAt:Date.now()});
+    const joiningActiveHand=lateJoin;
+    await set(ref(db,`rooms/${code}/players/${myId}`),{
+      name:myName,color:myColor,chips:selectedChips,bet:0,totalBet:0,
+      folded:joiningActiveHand,allIn:joiningActiveHand,lastAction:joiningActiveHand?'Wacht':'',
+      waitingNextRound:joiningActiveHand,seatIndex:freeSeat,connected:true,joinedAt:Date.now()
+    });
   }
   saveSession();
   document.getElementById('display-code').textContent=code;
@@ -369,6 +424,7 @@ window.joinRoom=async()=>{
   listenRoom();
   showToast('✅ Verbonden!');
   if(room.status==='waiting')window.showScreen('screen-waiting');
+  else if(lateJoin)showToast('Je speelt mee vanaf de volgende ronde');
 };
 
 /* ═══════════════════════════════════════════════════════════
@@ -459,10 +515,10 @@ async function dealNewRound(pl,settings,dealerSeatIdx,roundNum,parked=[]){
     startingPot+=bet;
     currentBet=Math.max(currentBet,bet);
     privateCards[p.id]={0:c1,1:c2};
-    pUpdates[p.id]={name:p.name,color:p.color,chips,bet,totalBet:bet,folded:false,allIn:chips===0,lastAction:'',seatIndex:p.seatIndex,connected:p.connected!==false,joinedAt:p.joinedAt||Date.now()};
+    pUpdates[p.id]={name:p.name,color:p.color,chips,bet,totalBet:bet,folded:false,allIn:chips===0,lastAction:'',waitingNextRound:false,seatIndex:p.seatIndex,connected:p.connected!==false,joinedAt:p.joinedAt||Date.now()};
   });
   parked.forEach(p=>{
-    pUpdates[p.id]={name:p.name,color:p.color,chips:p.chips||0,bet:0,totalBet:p.totalBet||0,folded:true,allIn:true,lastAction:'Offline',seatIndex:p.seatIndex,connected:false,joinedAt:p.joinedAt||Date.now(),leftAt:p.leftAt||Date.now()};
+    pUpdates[p.id]={name:p.name,color:p.color,chips:p.chips||0,bet:0,totalBet:0,folded:true,allIn:true,lastAction:(p.chips||0)>0?'Offline':'Bust',waitingNextRound:false,seatIndex:p.seatIndex,connected:p.connected!==false,joinedAt:p.joinedAt||Date.now(),leftAt:p.connected===false?(p.leftAt||Date.now()):null};
   });
 
   const handPlayers=pl.map(p=>({id:p.id,...pUpdates[p.id]}));
@@ -474,7 +530,7 @@ async function dealNewRound(pl,settings,dealerSeatIdx,roundNum,parked=[]){
   await update(ref(db),{
     [`rooms/${myRoomCode}/players`]:pUpdates,
     [`rooms/${myRoomCode}/actions`]:null,
-    [`rooms/${myRoomCode}/game`]:{phase:0,pot:Math.round(startingPot*100)/100,currentBet,dealerSeat:dealerSeatIdx,sbSeat:sbSeatIdx,bbSeat:bbSeatIdx,toAct,community:[],roundNum,showdown:false,winnerIds:[],showCards:{},actionNonce:0},
+    [`rooms/${myRoomCode}/game`]:{phase:0,pot:Math.round(startingPot*100)/100,currentBet,dealerSeat:dealerSeatIdx,sbSeat:sbSeatIdx,bbSeat:bbSeatIdx,toAct,community:[],roundNum,showdown:false,winnerIds:[],showCards:{},actionNonce:0,turnStartedAt:toAct.length?Date.now():null,showdownStartedAt:null,nextRoundAt:null},
     [`roomSecrets/${myRoomCode}/deck`]:deck,
     [`roomSecrets/${myRoomCode}/cards`]:privateCards
   });
@@ -636,6 +692,8 @@ function renderGame(room){
   const winnerIds=toArr(game.winnerIds||[]);
   const isShowdown=!!game.showdown;
   const showCards=game.showCards||{};
+  const turnLeft=turnSecondsLeft(game);
+  const nextRoundLeft=showdownSecondsLeft(game);
 
   // Community cards
   const cc=document.getElementById('community-cards');cc.innerHTML='';
@@ -668,8 +726,9 @@ function renderGame(room){
     if(p.seatIndex===game.dealerSeat)badge='<div class="seat-badge badge-D">D</div>';
     else if(p.seatIndex===game.sbSeat)badge='<div class="seat-badge badge-SB">SB</div>';
     else if(p.seatIndex===game.bbSeat)badge='<div class="seat-badge badge-BB">BB</div>';
-    const aMap={Fold:'fold',Check:'check',Call:'call',Raise:'raise','All-In':'all-in'};
+    const aMap={Fold:'fold',Check:'check',Call:'call',Raise:'raise','All-In':'all-in',Wacht:'wait',Bust:'fold',Offline:'fold'};
     const actHtml=(!isShowdown&&p.lastAction)?`<div class="seat-action action-${aMap[p.lastAction]||'check'}">${p.lastAction}</div>`:'';
+    const timerHtml=(!isShowdown&&isActive&&turnLeft!==null)?`<div class="seat-timer${turnLeft<=5?' danger':''}">${turnLeft}s</div>`:'';
     // Kaarten: bij showdown face-up tonen voor niet-gefoldde spelers
     let cardsHtml='';
     if(!p.folded){
@@ -694,17 +753,22 @@ function renderGame(room){
           <div class="seat-chips">€${(p.chips||0).toFixed(2)}</div>
         </div>
       </div>
-      ${actHtml}</div>
+      ${actHtml}${timerHtml}</div>
       ${p.bet>0?`<div class="seat-bet">€${(p.bet||0).toFixed(2)}</div>`:''}`;
     con.appendChild(s);
   });
 
   // Mijn kaarten + info
   const me=pl[myId]||{};
+  const waitingNextRound=!!me.waitingNextRound;
   const ownCards=myCardsCache.length?myCardsCache:toArr(me.cards||[]);
   if(shouldClearPendingAction(room))setPendingAction(false);
   const mc=document.getElementById('my-cards');mc.innerHTML='';
-  ownCards.forEach(c=>mc.appendChild(makeCard(c.r,c.s,true)));
+  if(waitingNextRound&&!isShowdown){
+    mc.innerHTML='<div class="waiting-cards">Volgende ronde</div>';
+  }else{
+    ownCards.forEach(c=>mc.appendChild(makeCard(c.r,c.s,true)));
+  }
   document.getElementById('my-name').textContent=me.name||myName;
   document.getElementById('my-chips').textContent=`€${(me.chips||0).toFixed(2)}`;
 
@@ -712,7 +776,9 @@ function renderGame(room){
   const myActionPending=pendingAction||!!room.actions?.[myId];
   const myTurn=toAct[0]===myId&&!me.folded&&!me.allIn&&!game.showdown&&!myActionPending;
   const toCall=Math.max(0,(game.currentBet||0)-(me.bet||0));
-  document.getElementById('turn-badge').style.display=(myTurn&&!isShowdown)?'block':'none';
+  const turnBadge=document.getElementById('turn-badge');
+  turnBadge.textContent=turnLeft!==null?`Jouw beurt · ${turnLeft}s`:'Jouw beurt!';
+  turnBadge.style.display=(myTurn&&!isShowdown)?'block':'none';
   // Toon "Toon Winnaar" knop voor host als spel vastloopt
   const stuck=isHost&&toAct.length===0&&(game.phase||0)<4&&!game.showdown;
   const fbtn=document.getElementById('btn-force');
@@ -722,14 +788,20 @@ function renderGame(room){
   // Action panel tijdens showdown: vervang knoppen door volgende ronde UI
   const abPanel=document.querySelector('.action-buttons');
   if(isShowdown){
+    const countText=nextRoundLeft!==null?`Nieuwe ronde over ${nextRoundLeft}s`:'Nieuwe ronde start zo';
     abPanel.innerHTML=isHost
       ?`<div class="showdown-next" style="width:100%;gap:12px">
-          <button class="btn-next-inline" onclick="nextRound()">Volgende Ronde →</button>
+          <button class="btn-next-inline" onclick="nextRound()">Volgende Ronde${nextRoundLeft!==null?` (${nextRoundLeft}s)`:''} →</button>
+          <span class="round-countdown">${countText}</span>
           <button onclick="leaveRoom()" style="background:transparent;border:1px solid var(--border);color:var(--text-dim);border-radius:8px;padding:.6rem 1rem;font-family:Rajdhani,sans-serif;font-weight:700;font-size:.85rem;cursor:pointer;letter-spacing:.05em">Stoppen</button>
         </div>`
       :`<div class="showdown-next" style="width:100%">
-          <span class="waiting-next">⏳ Wachten op host voor volgende ronde…</span>
+          <span class="waiting-next">${countText}</span>
         </div>`;
+  } else if(waitingNextRound){
+    abPanel.innerHTML=`<div class="showdown-next join-wait-panel" style="width:100%">
+      <span class="waiting-next">Je speelt mee vanaf de volgende ronde</span>
+    </div>`;
   } else {
     if(abPanel.querySelector('.showdown-next')){
       // Nieuwe ronde gestart – herstel knoppen
@@ -805,11 +877,16 @@ window.confirmRaise=async()=>{
 };
 
 async function processPendingActions(room){
-  if(processingAction||room.status!=='playing'||room.game?.showdown)return;
+  if(processingAction||room.status!=='playing')return;
+  if(room.game?.showdown){await processShowdownTimer(room);return;}
   const toAct=toArr(room.game?.toAct||[]);
   const currentId=toAct[0];
   if(!currentId)return;
-  const action=room.actions?.[currentId]||(room.players?.[currentId]?.connected===false?{type:'fold',auto:true}:null);
+  let action=room.actions?.[currentId]||(room.players?.[currentId]?.connected===false?{type:'fold',auto:true}:null);
+  if(!action&&room.game?.turnStartedAt&&Date.now()-room.game.turnStartedAt>=TURN_TIMEOUT_MS){
+    action=autoTurnAction(room,currentId);
+    if(action&&lastSnap?.game)lastSnap.game.turnStartedAt=null;
+  }
   if(!action)return;
   if(!action.auto&&action.nonce!==(room.game?.actionNonce||0)){
     processingAction=true;
@@ -884,6 +961,7 @@ async function applyPlayerAction(playerId,actionReq,room){
     [`rooms/${myRoomCode}/game/currentBet`]:Math.round(curBet*100)/100,
     [`rooms/${myRoomCode}/game/toAct`]:newToAct,
     [`rooms/${myRoomCode}/game/actionNonce`]:(game.actionNonce||0)+1,
+    [`rooms/${myRoomCode}/game/turnStartedAt`]:newToAct.length?Date.now():null,
     [`rooms/${myRoomCode}/actions/${playerId}`]:null
   });
 
@@ -919,7 +997,9 @@ async function nextPhase(room){
     actions:null,
     'game/phase':nextPh,'game/pot':game.pot,'game/currentBet':0,
     'game/community':comm,'game/toAct':newToAct,
-    'game/showdown':false,'game/showCards':{},'game/_advancing':false
+    'game/showdown':false,'game/showCards':{},'game/_advancing':false,
+    'game/turnStartedAt':newToAct.length?Date.now():null,
+    'game/showdownStartedAt':null,'game/nextRoundAt':null
   });
   await set(ref(db,`roomSecrets/${myRoomCode}/deck`),deck);
 
@@ -938,6 +1018,7 @@ async function endRound(players,pot,game){
   if(!winner)return;
   const wId=Object.entries(players).find(([,p])=>!p.folded)?.[0];
   if(!wId)return;
+  const now=Date.now();
   const cardsSnap=await get(ref(db,`roomSecrets/${myRoomCode}/cards/${wId}`));
   const winnerCards=cardsSnap.val()||players[wId].cards||{};
   const{cards,...winnerClean}=players[wId];
@@ -949,7 +1030,11 @@ async function endRound(players,pot,game){
     [`rooms/${myRoomCode}/game/phase`]:4,
     [`rooms/${myRoomCode}/game/showdown`]:true,
     [`rooms/${myRoomCode}/game/winnerIds`]:[wId],
-    [`rooms/${myRoomCode}/game/showCards/${wId}`]:winnerCards
+    [`rooms/${myRoomCode}/game/showCards/${wId}`]:winnerCards,
+    [`rooms/${myRoomCode}/game/toAct`]:[],
+    [`rooms/${myRoomCode}/game/turnStartedAt`]:null,
+    [`rooms/${myRoomCode}/game/showdownStartedAt`]:now,
+    [`rooms/${myRoomCode}/game/nextRoundAt`]:now+SHOWDOWN_NEXT_MS
   });
 }
 
@@ -958,6 +1043,7 @@ async function endRound(players,pot,game){
 ═══════════════════════════════════════════════════════════ */
 async function runShowdown(room){
   const game=room.game,players=room.players;
+  const now=Date.now();
   const comm=toArr(game.community||[]);
   let deck=null;
   if(comm.length<5){
@@ -988,7 +1074,10 @@ async function runShowdown(room){
     'game/toAct':[],
     'game/community':comm,
     'game/winnerIds':Object.entries(payouts).filter(([,amount])=>amount>0).map(([id])=>id),
-    'game/showCards':showCards
+    'game/showCards':showCards,
+    'game/turnStartedAt':null,
+    'game/showdownStartedAt':now,
+    'game/nextRoundAt':now+SHOWDOWN_NEXT_MS
   });
 }
 
@@ -1013,23 +1102,31 @@ window.forceShowdown=async()=>{
     else showToast('⚠️ Toon winnaar lukt niet');
   }
 };
-window.nextRound=async()=>{
-  if(!isHost){showToast('Alleen de host start de volgende ronde');return;}
+async function startNextRoundFromRoom(room,isAutomatic=false){
   showdownShown=false;
-  const snap=await get(ref(db,`rooms/${myRoomCode}`));
-  const room=snap.val();
   await markSelfConnected(room);
   const allP=Object.entries(room.players||{}).map(([id,p])=>({id,...p}));
   const active=allP.filter(p=>p.connected!==false&&p.chips>0);
   const parked=allP.filter(p=>p.connected===false||p.chips<=0);
-  if(active.length<2){showToast('Te weinig spelers met chips!');return;}
+  if(active.length<2){showToast('Te weinig spelers met chips!');return false;}
   // De dealer schuift exact 1 plek door naar de eerstvolgende actieve stoel.
   // (We sturen niet langer een "extra" nextSeat door — dat veroorzaakte de +2 bug.)
   const oldDealer=room.game?.dealerSeat??-1;
   const activeSeats=active.map(p=>p.seatIndex).sort((a,b)=>a-b);
   const newDealer=nextSeatIn(activeSeats,oldDealer);
   await dealNewRound(active,room.settings,newDealer,(room.game?.roundNum||1)+1,parked);
-  showToast(`🔄 Ronde ${(room.game?.roundNum||1)+1} gestart!`);
+  showToast(isAutomatic?`Ronde ${(room.game?.roundNum||1)+1} automatisch gestart`:`🔄 Ronde ${(room.game?.roundNum||1)+1} gestart!`);
+  return true;
+}
+
+window.nextRound=async()=>{
+  if(!isHost){showToast('Alleen de host start de volgende ronde');return;}
+  const snap=await get(ref(db,`rooms/${myRoomCode}`));
+  if(!snap.exists())return;
+  const started=await startNextRoundFromRoom(snap.val(),false);
+  if(!started){
+    try{await update(ref(db,`rooms/${myRoomCode}/game`),{_startingNextRound:false,nextRoundAt:null});}catch(_){}
+  }
 };
 
 /* ═══════════════════════════════════════════════════════════

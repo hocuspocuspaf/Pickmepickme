@@ -4,7 +4,7 @@
     ".write": false,
     "rooms": {
       "$room": {
-        ".read": "auth != null && (data.child('status').val() === 'waiting' || data.child('players').child(auth.uid).exists())",
+        ".read": "auth != null && (data.child('status').val() === 'waiting' || data.child('status').val() === 'playing' || data.child('players').child(auth.uid).exists())",
         ".write": "auth != null && ((!data.exists() && newData.child('hostId').val() === auth.uid) || data.child('hostId').val() === auth.uid)",
         "players": {
           "$uid": {
@@ -34,13 +34,16 @@
               ".validate": "root.child('rooms').child($room).child('hostId').val() === auth.uid || (!data.exists() && newData.val() === 0) || newData.val() === data.val()"
             },
             "folded": {
-              ".validate": "root.child('rooms').child($room).child('hostId').val() === auth.uid || (!data.exists() && newData.val() === false) || newData.val() === data.val()"
+              ".validate": "root.child('rooms').child($room).child('hostId').val() === auth.uid || (!data.exists() && (newData.val() === false || (root.child('rooms').child($room).child('status').val() === 'playing' && newData.val() === true))) || newData.val() === data.val()"
             },
             "allIn": {
-              ".validate": "root.child('rooms').child($room).child('hostId').val() === auth.uid || (!data.exists() && newData.val() === false) || newData.val() === data.val()"
+              ".validate": "root.child('rooms').child($room).child('hostId').val() === auth.uid || (!data.exists() && (newData.val() === false || (root.child('rooms').child($room).child('status').val() === 'playing' && newData.val() === true))) || newData.val() === data.val()"
             },
             "lastAction": {
-              ".validate": "root.child('rooms').child($room).child('hostId').val() === auth.uid || (!data.exists() && newData.val() === '') || newData.val() === data.val()"
+              ".validate": "root.child('rooms').child($room).child('hostId').val() === auth.uid || (!data.exists() && (newData.val() === '' || (root.child('rooms').child($room).child('status').val() === 'playing' && newData.val() === 'Wacht'))) || newData.val() === data.val()"
+            },
+            "waitingNextRound": {
+              ".validate": "root.child('rooms').child($room).child('hostId').val() === auth.uid || (!data.exists() && newData.isBoolean()) || newData.val() === data.val()"
             },
             "seatIndex": {
               ".validate": "root.child('rooms').child($room).child('hostId').val() === auth.uid || !data.exists() || newData.val() === data.val()"
