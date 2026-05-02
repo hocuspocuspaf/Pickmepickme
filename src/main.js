@@ -209,11 +209,44 @@ function showdownSecondsLeft(game){
   return secondsUntil(game?.nextRoundAt);
 }
 
+function countdownPct(endTs,totalMs){
+  if(!endTs||!totalMs)return 0;
+  return Math.max(0,Math.min(100,((endTs-Date.now())/totalMs)*100));
+}
+
+function timerBarHtml(pct){
+  return `<span class="countdown-bar"><span style="width:${pct}%"></span></span>`;
+}
+
 function autoTurnAction(room,playerId){
   const game=room.game||{},p=room.players?.[playerId];
   if(!p||p.folded||p.allIn)return null;
   const toCall=Math.max(0,(game.currentBet||0)-(p.bet||0));
   return{type:toCall<=0?'check':'fold',ts:Date.now(),auto:true,timeout:true};
+}
+
+async function ensureGameTimers(room){
+  if(!isHost||!db||!myRoomCode||room.status!=='playing'||processingAction)return false;
+  const game=room.game||{};
+  if(game.showdown&&!game.nextRoundAt&&!game._startingNextRound){
+    const now=Date.now();
+    game.turnStartedAt=null;
+    game.showdownStartedAt=game.showdownStartedAt||now;
+    game.nextRoundAt=now+SHOWDOWN_NEXT_MS;
+    await update(ref(db,`rooms/${myRoomCode}/game`),{
+      turnStartedAt:null,
+      showdownStartedAt:game.showdownStartedAt,
+      nextRoundAt:game.nextRoundAt
+    });
+    return true;
+  }
+  const toAct=toArr(game.toAct||[]);
+  if(!game.showdown&&toAct.length&&!game.turnStartedAt){
+    game.turnStartedAt=Date.now();
+    await update(ref(db,`rooms/${myRoomCode}/game/turnStartedAt`),game.turnStartedAt);
+    return true;
+  }
+  return false;
 }
 
 async function processShowdownTimer(room){
@@ -245,8 +278,9 @@ setInterval(()=>{
   if(roomUnsub&&(isHost||pendingAction))refreshRoomFromServer();
 },HOST_WATCHDOG_MS);
 setInterval(()=>{
-  if(!lastSnap||lastSnap.status!=='playing'||document.visibilityState==='hidden')return;
+  if(!lastSnap||lastSnap.status!=='playing')return;
   if(isHost)processPendingActions(lastSnap);
+  if(document.visibilityState==='hidden')return;
   renderGame(lastSnap);
 },1000);
 document.addEventListener('visibilitychange',()=>{
@@ -700,17 +734,22 @@ function renderGame(room){
   for(let i=0;i<5;i++)cc.appendChild(community[i]?makeCard(community[i].r,community[i].s,true):makeCard(null,null,false));
 
   // Pot of showdown-banner in tafelcentrum
+  const potEl=document.getElementById('pot-display');
   if(isShowdown&&winnerIds.length>0){
     const winP=allP.find(p=>p.id===winnerIds[0]);
     const wCards=toArr(showCards[winnerIds[0]]||(winnerIds[0]===myId?myCardsCache:(winP?.cards||[])));
     let handLabel='';
     if(community.length>=3&&wCards.length>=2){try{handLabel=evalHand([...wCards,...community]).name;}catch(e){}}
-    const potEl=document.getElementById('pot-display');
-    potEl.innerHTML=`<span style="color:var(--gold);font-size:.78rem">🏆 ${winP?.name||'?'} wint!</span>${handLabel?`<br><span style="font-size:.65rem;color:var(--text-dim)">${handLabel}</span>`:''}`;
+    const nextPct=countdownPct(game.nextRoundAt,SHOWDOWN_NEXT_MS);
+    const timerHtml=nextRoundLeft!==null?`<br><span class="timer-line">Nieuwe ronde: ${nextRoundLeft}s</span>${timerBarHtml(nextPct)}`:'';
+    potEl.innerHTML=`<span style="color:var(--gold);font-size:.78rem">🏆 ${winP?.name||'?'} wint!</span>${handLabel?`<br><span style="font-size:.65rem;color:var(--text-dim)">${handLabel}</span>`:''}${timerHtml}`;
     potEl.style.borderColor='rgba(201,168,76,0.6)';
   } else {
-    document.getElementById('pot-display').textContent=`POT: €${(game.pot||0).toFixed(2)}`;
-    document.getElementById('pot-display').style.borderColor='rgba(201,168,76,0.28)';
+    const activeP=allP.find(p=>p.id===toAct[0]);
+    const turnEnd=game.turnStartedAt?game.turnStartedAt+TURN_TIMEOUT_MS:null;
+    const turnTimer=turnLeft!==null&&activeP?`<br><span class="timer-line">${activeP.name}: ${turnLeft}s</span>${timerBarHtml(countdownPct(turnEnd,TURN_TIMEOUT_MS))}`:'';
+    potEl.innerHTML=`POT: €${(game.pot||0).toFixed(2)}${turnTimer}`;
+    potEl.style.borderColor=turnLeft!==null?'rgba(244,220,134,.68)':'rgba(201,168,76,0.28)';
   }
   document.getElementById('game-phase').textContent=PHASES[game.phase]||'Pre-Flop';
 
@@ -739,12 +778,11 @@ function renderGame(room){
         cardsHtml='<div class="seat-cards"><div class="seat-card-sm"></div><div class="seat-card-sm"></div></div>';
       }
     }
-    const winBadge=isWinner?'<div style="position:absolute;top:-10px;left:50%;transform:translateX(-50%);font-size:0.7rem;background:var(--gold);color:#1a1000;border-radius:8px;padding:1px 6px;font-weight:700;white-space:nowrap">🏆 WINNAAR</div>':'';
     const s=document.createElement('div');
     s.id=`seat-${p.id}`;
     s.className='seat'+(p.folded?' folded':'')+(isActive?' active-turn':'')+(isWinner?' winner-seat':'');
     s.style.left=pos.x+'%';s.style.top=pos.y+'%';
-    s.innerHTML=`<div class="seat-inner">${badge}${winBadge}
+    s.innerHTML=`<div class="seat-inner">${badge}
       ${cardsHtml}
       <div class="seat-label">
         <div class="seat-avatar" style="background:${p.color}">${(p.name||'?')[0]}</div>
@@ -878,6 +916,7 @@ window.confirmRaise=async()=>{
 
 async function processPendingActions(room){
   if(processingAction||room.status!=='playing')return;
+  if(await ensureGameTimers(room))return;
   if(room.game?.showdown){await processShowdownTimer(room);return;}
   const toAct=toArr(room.game?.toAct||[]);
   const currentId=toAct[0];
