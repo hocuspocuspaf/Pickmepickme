@@ -1224,16 +1224,32 @@ window.sendEmoji=async emoji=>{
     showToast('⚠️ Emoji kon niet verstuurd worden');
   }
 };
+
+function showEmojiFloat(playerId,emoji,attempt=0){
+  const seat=document.getElementById(`seat-${playerId}`);
+  const table=document.querySelector('.table-container');
+  if(!seat||!table){
+    if(attempt<6)setTimeout(()=>showEmojiFloat(playerId,emoji,attempt+1),80);
+    return;
+  }
+  const seatRect=seat.getBoundingClientRect();
+  const tableRect=table.getBoundingClientRect();
+  const fl=document.createElement('div');
+  fl.className='emoji-float';
+  fl.textContent=emoji;
+  fl.style.left=`${Math.round(seatRect.left+seatRect.width/2-tableRect.left)}px`;
+  fl.style.top=`${Math.round(seatRect.top-tableRect.top-10)}px`;
+  table.appendChild(fl);
+  setTimeout(()=>fl.remove(),2300);
+}
+
 function listenEmoji(){
   if(emojiUnsub)emojiUnsub();
   emojiUnsub=onValue(ref(db,`rooms/${myRoomCode}/emoji`),snap=>{
     if(!snap.exists())return;
     const{playerId,emoji,ts}=snap.val();
-    if(Date.now()-ts>5000)return; // te oud negeren
-    const seat=document.getElementById(`seat-${playerId}`);
-    if(!seat)return;
-    const fl=document.createElement('div');fl.className='emoji-float';fl.textContent=emoji;
-    seat.appendChild(fl);setTimeout(()=>fl.remove(),2300);
+    if(Math.abs(Date.now()-ts)>30000)return; // oude events negeren, met klok-speling tussen toestellen
+    showEmojiFloat(playerId,emoji);
   });
 }
 

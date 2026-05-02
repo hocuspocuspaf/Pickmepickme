@@ -164,7 +164,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
 .seat-timer{font-size:.68rem;padding:2px 8px;border-radius:999px;font-weight:900;letter-spacing:.05em;margin-top:4px;color:#1a1000;background:linear-gradient(135deg,var(--gold),var(--gold-light));box-shadow:0 0 14px rgba(244,220,134,.32)}
 .seat-timer.danger{background:linear-gradient(135deg,#d93b3b,#ffb1a6);animation:glow 1s ease infinite}
 .seat-bet{font-size:.72rem;color:var(--gold-light);background:rgba(18,32,23,.84);border:1px solid rgba(244,220,134,.38);padding:2px 7px;border-radius:10px;margin-top:3px;font-weight:800}
-.emoji-float{position:absolute;top:-34px;left:50%;font-size:1.55rem;animation:floatUp 2.2s ease forwards;pointer-events:none;z-index:30;text-shadow:0 3px 8px rgba(0,0,0,.55)}
+.emoji-float{position:absolute;font-size:1.75rem;animation:floatUp 2.2s ease forwards;pointer-events:none;z-index:35;text-shadow:0 3px 8px rgba(0,0,0,.55)}
 @keyframes floatUp{0%{opacity:1;transform:translate(-50%,0) scale(1)}100%{opacity:0;transform:translate(-50%,-42px) scale(1.16)}}
 @media(max-width:600px){
   .seat-inner{min-width:84px}.seat-label{min-width:84px;max-width:106px;padding:6px 7px;gap:6px}.seat-avatar{width:24px;height:24px;font-size:.7rem}
@@ -448,6 +448,6 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:'Rajdha
 
 <!-- Winner overlay verwijderd – showdown direct op tafel -->
 
-<script type="module" src="./src/main.js?v=leave-loop-1"></script>
+<script type="module" src="./src/main.js?v=emoji-overlay-1"></script>
 </body>
 </html>
